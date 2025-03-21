@@ -149,20 +149,3 @@ type CreateUserReq {
 | alphanum | 字母数字字符 | `validate:"alphanum"` |
 
 有关可用验证标签的完整列表，请参阅[validator文档](https://pkg.go.dev/github.com/go-playground/validator/v10)。
-
-
-## 项目结构
-
-```
-.
-├── cmd/goctl-validate/   # 命令行入口
-├── internal/             # 内部实现
-│   ├── processor/        # 核心处理逻辑
-│   └── validator/        # 验证相关代码
-├── test/                 # 测试代码
-├── example/              # 使用示例
-├── bin/                  # 编译输出目录
-├── go.mod                # Go模块文件
-├── Makefile              # 构建脚本
-└── README.md             # 说明文档
-```
