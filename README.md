@@ -28,7 +28,6 @@ func Parse(r *http.Request, v any) error {
 ## 安装
 
 ```bash
-# 克隆仓库
 go install github.com/linabellbiu/goctl-validate@latest
 ```
 
