@@ -1,0 +1,35 @@
+syntax = "v1"
+
+info (
+	title: "示例API"
+	desc: "用于测试goctl-validate插件的示例API"
+	author: "用户"
+	version: "1.0"
+)
+
+type (
+	StatusReq {
+		Id   int64  `json:"id" validate:"required,gt=0"`
+		Name string `json:"name" validate:"required"`
+	}
+
+	CreateItemReq {
+		Name        string  `json:"name" validate:"required,min=2,max=50"`
+		Description string  `json:"description" validate:"omitempty,max=200"`
+		Price       float64 `json:"price" validate:"required,gt=0"`
+	}
+
+	CommonResp {
+		Code    int         `json:"code"`
+		Message string      `json:"message"`
+		Data    interface{} `json:"data,omitempty"`
+	}
+)
+
+service example-api {
+	@handler GetStatus
+	get /status (StatusReq) returns (CommonResp)
+	
+	@handler CreateItem
+	post /items (CreateItemReq) returns (CommonResp)
+} 
