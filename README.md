@@ -1,5 +1,5 @@
 # goctl-validate
-一个go-zero API插件，用于在生成的`types.go`文件中自动添加请求验证逻辑。
+一个go-zero API插件，使用go-playground/validator无缝接入go-zreo。
 
 # 原理解析
 go-zreo参数验证的时候调用了validatioin/Validator 接口,只要实现了就会自动调用，这就是为啥我们只要加了 func (r *Request) Validate() error，就会自动验证 Request 对象了.超级方便!!!
@@ -28,7 +28,6 @@ func Parse(r *http.Request, v any) error {
 ## 安装
 
 ```bash
-# 克隆仓库
 go install github.com/linabellbiu/goctl-validate@latest
 ```
 
@@ -150,20 +149,3 @@ type CreateUserReq {
 | alphanum | 字母数字字符 | `validate:"alphanum"` |
 
 有关可用验证标签的完整列表，请参阅[validator文档](https://pkg.go.dev/github.com/go-playground/validator/v10)。
-
-
-## 项目结构
-
-```
-.
-├── cmd/goctl-validate/   # 命令行入口
-├── internal/             # 内部实现
-│   ├── processor/        # 核心处理逻辑
-│   └── validator/        # 验证相关代码
-├── test/                 # 测试代码
-├── example/              # 使用示例
-├── bin/                  # 编译输出目录
-├── go.mod                # Go模块文件
-├── Makefile              # 构建脚本
-└── README.md             # 说明文档
-```
