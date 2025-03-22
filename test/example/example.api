@@ -1,0 +1,33 @@
+syntax = "v1"
+
+info (
+	title:   "示例API"
+	desc:    "用于测试goctl-validate插件的示例API"
+	author:  "用户"
+	version: "1.0"
+)
+
+type (
+	LoginReq {
+		Mobile   string `json:"mobile" validate:"required,mobile"`
+		Password string `json:"password" validate:"required,min=6,max=20"`
+	}
+	UserInfoReq {
+		IDCard string `json:"id_card" validate:"required,idcard"`
+		Name   string `json:"name" validate:"required"`
+	}
+	CommonResp {
+		Code    int         `json:"code"`
+		Message string      `json:"message"`
+		Data    interface{} `json:"data,omitempty"`
+	}
+)
+
+service example-api {
+	@handler Login
+	post /user/login (LoginReq) returns (CommonResp)
+
+	@handler GetUserInfo
+	get /user/info (UserInfoReq) returns (CommonResp)
+}
+
