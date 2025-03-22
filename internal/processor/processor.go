@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 )
 
@@ -26,22 +27,29 @@ const (
 	ValidateImport = `"github.com/go-playground/validator/v10"`
 	ValidateVar    = `var validate = validator.New()`
 
-	// 基本验证初始化
-	ValidateInitFuncStart = `
+	// 验证方法映射注释和开始部分
+	ValidationRegisterComment = `// registerValidation 存储所有的验证方法
+// key: 验证标签名称，value: 对应的验证函数`
+
+	// 验证方法映射
+	ValidateRegisterMap = `var registerValidation = map[string]validator.Func{
+	"mobile": validateMobile, // 手机号验证
+	"idcard": validateIdCard, // 身份证号验证
+`
+
+	// 自定义验证方法映射模板
+	CustomValidationMapTemplate = `	"%s": validate%s, // %s
+`
+
+	// 验证方法注册初始化
+	ValidateInitFunc = `
+// 初始化并注册所有验证方法
 func init() {
-	// 注册手机号验证方法
-	validate.RegisterValidation("mobile", validateMobile)
-	// 注册身份证号验证方法
-	validate.RegisterValidation("idcard", validateIdCard)
-`
-
-	// 自定义验证方法注册模板
-	CustomValidationRegisterTemplate = `	// 注册自定义验证方法: %s
-	validate.RegisterValidation("%s", validate%s)
-`
-
-	// 初始化函数结束
-	ValidateInitFuncEnd = `}
+	// 遍历注册所有验证方法
+	for tag, handler := range registerValidation {
+		_ = validate.RegisterValidation(tag, handler)
+	}
+}
 `
 
 	// 自定义验证方法定义模板
@@ -99,8 +107,10 @@ func ProcessTypesFile(filePath string, options Options) error {
 	existingValidations := make(map[string]bool)
 
 	// 检查imports
+	hasValidatorImport := false
 	for _, imp := range f.Imports {
 		if imp.Path.Value == ValidateImport {
+			hasValidatorImport = true
 			break
 		}
 	}
@@ -226,28 +236,39 @@ func ProcessTypesFile(filePath string, options Options) error {
 		validationFileContent.WriteString("\t" + ValidateImport + "\n")
 		validationFileContent.WriteString(")\n\n")
 
-		// 添加验证器变量
-		validationFileContent.WriteString(ValidateVar + "\n\n")
+		// 添加验证方法映射注释
+		validationFileContent.WriteString(ValidationRegisterComment + "\n")
 
-		// 添加init函数
-		validationFileContent.WriteString(ValidateInitFuncStart)
+		// 添加验证方法映射开始
+		validationFileContent.WriteString(ValidateRegisterMap)
 
-		// 如果启用了自定义验证，添加自定义验证标签的注册
+		// 按字母顺序排序标签，确保生成顺序一致
+		var sortedTags []string
+		for tag := range customTags {
+			sortedTags = append(sortedTags, tag)
+		}
+		sort.Strings(sortedTags)
+
+		// 如果启用了自定义验证，添加自定义验证标签
 		if options.EnableCustomValidation && len(customTags) > 0 {
-			for tag := range customTags {
-				validationFileContent.WriteString(fmt.Sprintf(CustomValidationRegisterTemplate, tag, tag, strings.Title(tag)))
+			for _, tag := range sortedTags {
+				validationFileContent.WriteString(fmt.Sprintf(CustomValidationMapTemplate, tag, strings.Title(tag), tag))
 			}
 		}
 
-		// 添加init函数结束
-		validationFileContent.WriteString(ValidateInitFuncEnd + "\n")
+		// 结束map定义
+		validationFileContent.WriteString("}\n")
+
+		// 添加init函数
+		validationFileContent.WriteString(ValidateInitFunc + "\n")
 
 		// 添加内置验证函数
 		validationFileContent.WriteString(BuiltInValidationFunc + "\n")
 
 		// 如果启用了自定义验证，添加自定义验证函数
 		if options.EnableCustomValidation && len(customTags) > 0 {
-			for tag := range customTags {
+			// 按字母顺序添加验证函数
+			for _, tag := range sortedTags {
 				if !existingValidations[tag] {
 					validationFileContent.WriteString(fmt.Sprintf(CustomValidationFuncTemplate, tag, strings.Title(tag), tag))
 				}
@@ -258,10 +279,11 @@ func ProcessTypesFile(filePath string, options Options) error {
 		// 1. 提取现有的验证函数和注册
 		existingFuncs := make(map[string]bool)
 		existingRegs := make(map[string]bool)
+		existingRegLines := make(map[string]string) // 存储原始的注册行，用于保持注释一致性
 
 		// 提取文件中所有的验证函数和注册信息
 		funcRegex := regexp.MustCompile(`func validate(\w+)\(fl validator\.FieldLevel\) bool`)
-		regRegex := regexp.MustCompile(`validate\.RegisterValidation\("(\w+)"`)
+		regRegex := regexp.MustCompile(`\t"(\w+)":\s*validate\w+,.*`)
 
 		// 查找所有的验证函数
 		funcMatches := funcRegex.FindAllStringSubmatch(validationContent, -1)
@@ -276,87 +298,169 @@ func ProcessTypesFile(filePath string, options Options) error {
 			}
 		}
 
-		// 查找所有的注册
-		regMatches := regRegex.FindAllStringSubmatch(validationContent, -1)
-		for _, match := range regMatches {
-			if len(match) > 1 {
-				tag := match[1]
+		// 查找所有的注册行和对应的tag
+		regMatches := regRegex.FindAllStringSubmatchIndex(validationContent, -1)
+		for _, matchIndex := range regMatches {
+			if len(matchIndex) >= 4 {
+				startOfLine := validationContent[matchIndex[0]:matchIndex[1]]
+				tag := validationContent[matchIndex[2]:matchIndex[3]]
+
 				if tag != "mobile" && tag != "idcard" { // 跳过内置标签
 					existingRegs[tag] = true
+					existingRegLines[tag] = startOfLine // 保存整行内容
 				}
 			}
 		}
 
-		// 2. 生成新的init函数
-		var newInitContent strings.Builder
-		newInitContent.WriteString("func init() {\n")
-		newInitContent.WriteString("\t// 注册手机号验证方法\n")
-		newInitContent.WriteString("\tvalidate.RegisterValidation(\"mobile\", validateMobile)\n")
-		newInitContent.WriteString("\t// 注册身份证号验证方法\n")
-		newInitContent.WriteString("\tvalidate.RegisterValidation(\"idcard\", validateIdCard)\n")
+		// 2. 收集所有标签，按字母顺序排序
+		var allTags []string
 
-		// 收集处理过的标签，避免重复
-		processedTags := make(map[string]bool)
+		// 添加内置标签(固定顺序)
+		allTags = append(allTags, "mobile", "idcard")
 
-		// 添加当前types.go文件中的自定义验证标签注册
+		// 收集所有自定义标签
 		for tag := range customTags {
-			processedTags[tag] = true
-			if !existingRegs[tag] {
-				newInitContent.WriteString(fmt.Sprintf(CustomValidationRegisterTemplate, tag, tag, strings.Title(tag)))
-			} else {
-				// 保留已有的注册代码
-				regPattern := fmt.Sprintf(`\t// 注册自定义验证方法: %s\n\tvalidate.RegisterValidation\("%s", validate%s\)`, tag, tag, strings.Title(tag))
-				regRegex := regexp.MustCompile(regPattern)
-				if regRegex.MatchString(validationContent) {
-					matches := regRegex.FindStringSubmatch(validationContent)
-					if len(matches) > 0 {
-						newInitContent.WriteString(matches[0] + "\n")
-					}
-				}
+			if tag != "mobile" && tag != "idcard" {
+				allTags = append(allTags, tag)
 			}
 		}
 
-		// 添加所有已存在的验证函数注册，即使不在当前types.go中
+		// 收集现有但不在customTags中的标签
 		for tag := range existingRegs {
-			if !processedTags[tag] && tag != "mobile" && tag != "idcard" {
-				processedTags[tag] = true
-				regPattern := fmt.Sprintf(`\t// 注册自定义验证方法: %s\n\tvalidate.RegisterValidation\("%s", validate%s\)`, tag, tag, strings.Title(tag))
-				regRegex := regexp.MustCompile(regPattern)
-				if regRegex.MatchString(validationContent) {
-					matches := regRegex.FindStringSubmatch(validationContent)
-					if len(matches) > 0 {
-						newInitContent.WriteString(matches[0] + "\n")
-					} else {
-						// 使用标准格式添加
-						newInitContent.WriteString(fmt.Sprintf(CustomValidationRegisterTemplate, tag, tag, strings.Title(tag)))
-					}
+			if tag != "mobile" && tag != "idcard" && !customTags[tag] {
+				allTags = append(allTags, tag)
+			}
+		}
+
+		// 除了内置标签外，对自定义标签按字母排序
+		if len(allTags) > 2 {
+			sort.Strings(allTags[2:])
+		}
+
+		// 3. 生成新的验证方法映射
+		var newMapContent strings.Builder
+		// 添加验证映射注释
+		newMapContent.WriteString(ValidationRegisterComment + "\n")
+		newMapContent.WriteString("var registerValidation = map[string]validator.Func{\n")
+
+		// 按排序后的标签顺序添加
+		for _, tag := range allTags {
+			if tag == "mobile" {
+				newMapContent.WriteString("\t\"mobile\": validateMobile, // 手机号验证\n")
+			} else if tag == "idcard" {
+				newMapContent.WriteString("\t\"idcard\": validateIdCard, // 身份证号验证\n")
+			} else {
+				// 如果存在原始的注册行，使用它保持格式一致
+				if line, exists := existingRegLines[tag]; exists {
+					newMapContent.WriteString(line + "\n")
+				} else {
+					// 否则使用标准格式
+					newMapContent.WriteString(fmt.Sprintf(CustomValidationMapTemplate, tag, strings.Title(tag), tag))
 				}
 			}
 		}
 
-		newInitContent.WriteString("}\n")
+		newMapContent.WriteString("}\n")
 
-		// 3. 替换原有的init函数
-		initRegex := regexp.MustCompile(`(?s)func\s+init\(\)\s*\{.*?\}`)
-		newValidationContent := initRegex.ReplaceAllString(validationContent, newInitContent.String())
+		// 4. 检查所有缺失的验证函数
+		// 为缺失的验证函数创建内容
+		var missingFuncContent strings.Builder
+		var missingTags []string
 
-		// 4. 添加缺失的验证函数
-		// 首先添加当前types.go中缺少的验证函数
+		// 收集所有需要验证函数但尚未存在的标签
 		for tag := range customTags {
 			if !existingFuncs[tag] {
-				if !strings.HasSuffix(newValidationContent, "\n\n") {
-					if strings.HasSuffix(newValidationContent, "\n") {
-						newValidationContent += "\n"
-					} else {
-						newValidationContent += "\n\n"
-					}
-				}
-
-				newValidationContent += fmt.Sprintf(CustomValidationFuncTemplate, tag, strings.Title(tag), tag)
+				missingTags = append(missingTags, tag)
 			}
 		}
 
-		// 5. 格式化并写入文件
+		// 按字母顺序添加验证函数
+		sort.Strings(missingTags)
+		for _, tag := range missingTags {
+			missingFuncContent.WriteString(fmt.Sprintf(CustomValidationFuncTemplate, tag, strings.Title(tag), tag))
+		}
+
+		// 5. 替换原有的验证方法映射和init函数
+		// 首先替换注释和map声明部分
+		commentAndMapPattern := `(?s)// registerValidation.*?var registerValidation = map\[string\]validator\.Func\{.*?\}`
+		mapRegex := regexp.MustCompile(commentAndMapPattern)
+
+		var newValidationContent string
+		if mapRegex.MatchString(validationContent) {
+			// 如果已经有map格式了，替换它
+			newValidationContent = mapRegex.ReplaceAllString(validationContent, newMapContent.String())
+
+			// 移除validate变量的声明(如果存在)
+			validateVarPattern := `var validate = validator\.New\(\)\n*`
+			validateVarRegex := regexp.MustCompile(validateVarPattern)
+			newValidationContent = validateVarRegex.ReplaceAllString(newValidationContent, "")
+
+			// 添加缺失的验证函数到文件末尾
+			if missingFuncContent.Len() > 0 {
+				newValidationContent = newValidationContent + "\n" + missingFuncContent.String()
+			}
+		} else {
+			// 如果是旧格式或者格式不匹配，创建一个全新的内容
+			var newFullContent strings.Builder
+			newFullContent.WriteString(fmt.Sprintf("package %s\n\n", packageName))
+
+			// 添加导入
+			newFullContent.WriteString("import (\n")
+			newFullContent.WriteString("\t\"regexp\"\n")
+			newFullContent.WriteString("\t" + ValidateImport + "\n")
+			newFullContent.WriteString(")\n\n")
+
+			// 添加验证方法映射（不添加validator变量）
+			newFullContent.WriteString(newMapContent.String() + "\n")
+
+			// 添加init函数
+			newFullContent.WriteString(ValidateInitFunc + "\n")
+
+			// 添加内置验证函数
+			newFullContent.WriteString(BuiltInValidationFunc + "\n")
+
+			// 提取所有自定义验证函数
+			customFuncPattern := `(?s)// 自定义验证方法:.*?return true\n\}`
+			customFuncRegex := regexp.MustCompile(customFuncPattern)
+			customFuncMatches := customFuncRegex.FindAllString(validationContent, -1)
+
+			// 按字母顺序整理自定义验证函数
+			type FuncInfo struct {
+				Tag  string
+				Code string
+			}
+			var funcInfos []FuncInfo
+
+			// 收集所有现有的函数
+			for _, funcCode := range customFuncMatches {
+				funcNameRegex := regexp.MustCompile(`func validate(\w+)\(`)
+				nameMatch := funcNameRegex.FindStringSubmatch(funcCode)
+				if len(nameMatch) > 1 {
+					funcName := nameMatch[1]
+					tag := strings.ToLower(funcName[:1]) + funcName[1:]
+					funcInfos = append(funcInfos, FuncInfo{Tag: tag, Code: funcCode})
+				}
+			}
+
+			// 对函数按标签名排序
+			sort.Slice(funcInfos, func(i, j int) bool {
+				return funcInfos[i].Tag < funcInfos[j].Tag
+			})
+
+			// 添加所有排序后的函数
+			for _, funcInfo := range funcInfos {
+				newFullContent.WriteString(funcInfo.Code + "\n\n")
+			}
+
+			// 添加缺失的验证函数
+			for _, tag := range missingTags {
+				newFullContent.WriteString(fmt.Sprintf(CustomValidationFuncTemplate, tag, strings.Title(tag), tag))
+			}
+
+			newValidationContent = newFullContent.String()
+		}
+
+		// 6. 格式化并写入文件
 		formatted, err := format.Source([]byte(newValidationContent))
 		if err != nil {
 			return fmt.Errorf("格式化更新的验证文件代码失败: %w", err)
@@ -373,6 +477,49 @@ func ProcessTypesFile(filePath string, options Options) error {
 
 	// 为所有请求结构体生成验证方法
 	var methodsBuilder strings.Builder
+
+	// 检查是否需要添加验证器的导入
+	if !hasValidatorImport && len(reqStructs) > 0 {
+		// 找到最后一个导入
+		lastImportPos := -1
+		for i, decl := range f.Decls {
+			genDecl, ok := decl.(*ast.GenDecl)
+			if ok && genDecl.Tok == token.IMPORT {
+				lastImportPos = i
+			}
+		}
+
+		// 找到文件中的包声明之后的位置
+		fileContentStr := string(fileContent)
+		packageEndPos := findPackagePosition(fileContentStr)
+		if packageEndPos > 0 {
+			packageEndPos = packageEndPos + len("package "+f.Name.Name)
+
+			// 如果已经有导入部分
+			if lastImportPos >= 0 {
+				// 将验证器的导入添加到现有导入部分
+				// 实现比较复杂，这里简单处理为在末尾添加
+			} else {
+				// 在包声明之后添加导入
+				importStatement := "\n\nimport (\n\t" + ValidateImport + "\n)"
+
+				// 插入导入语句
+				if options.DebugMode {
+					fmt.Println("添加验证器导入")
+				}
+
+				// 将导入添加到文件内容
+				fileContentStr = fileContentStr[:packageEndPos] + importStatement + fileContentStr[packageEndPos:]
+				fileContent = []byte(fileContentStr)
+			}
+		}
+
+		// 添加验证器变量的声明
+		validateVarStatement := "\n\n" + ValidateVar
+		fileContentStr = string(fileContent) + validateVarStatement
+		fileContent = []byte(fileContentStr)
+	}
+
 	for _, structName := range reqStructs {
 		// 检查是否已经存在该结构体的Validate方法
 		if !strings.Contains(string(fileContent), "func (r *"+structName+") Validate()") {
@@ -393,6 +540,10 @@ func ProcessTypesFile(filePath string, options Options) error {
 		// 写回文件
 		if err := os.WriteFile(filePath, formatted, 0644); err != nil {
 			return fmt.Errorf("写入文件失败: %w", err)
+		}
+
+		if options.DebugMode {
+			fmt.Printf("成功添加验证方法到 %s\n", filePath)
 		}
 	}
 

@@ -12,13 +12,6 @@ import (
 
 // ProcessPlugin 处理插件逻辑
 func ProcessPlugin(p *plugin.Plugin, options processor.Options) error {
-	// 不再在API目录生成validation.go文件
-	// validationFile, err := GenerateValidationFile(p.ApiFilePath, options)
-	// if err != nil {
-	// 	return err
-	// }
-	// fmt.Printf("成功生成验证文件: %s\n", validationFile)
-
 	// 查找并处理types.go文件
 	err := filepath.Walk(p.Dir, func(path string, info os.FileInfo, err error) error {
 		if err != nil {

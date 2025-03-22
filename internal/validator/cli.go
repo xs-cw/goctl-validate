@@ -5,7 +5,7 @@ import (
 	"strings"
 )
 
-// ParsePluginArgs 解析插件参数，处理格式为 goctl-validate="validate --flag1 --flag2" 的情况
+// ParsePluginArgs 解析插件参数
 func ParsePluginArgs() {
 	if len(os.Args) <= 1 {
 		return
@@ -60,4 +60,4 @@ func ParsePluginArgs() {
 
 	// 更新参数
 	os.Args = newArgs
-} 
+}
