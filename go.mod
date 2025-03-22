@@ -3,6 +3,7 @@ module github.com/linabellbiu/goctl-validate
 go 1.23.7
 
 require (
+	github.com/go-playground/validator/v10 v10.25.0
 	github.com/spf13/cobra v1.9.1
 	github.com/zeromicro/go-zero/tools/goctl v1.8.1
 )
