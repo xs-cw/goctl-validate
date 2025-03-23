@@ -796,8 +796,43 @@ func ProcessTypesFile(filePath string, options Options) error {
 
 		var newValidationContent string
 		if mapRegex.MatchString(validationContent) {
-			// 如果已经有map格式了，替换它
-			newValidationContent = mapRegex.ReplaceAllString(validationContent, newMapContent.String())
+			// 提取现有的验证方法映射内容
+			mapMatch := mapRegex.FindString(validationContent)
+
+			// 检查哪些标签需要被追加
+			var tagsToAppend []string
+			for _, tag := range allTags {
+				if tag != "mobile" && tag != "idcard" && !strings.Contains(mapMatch, fmt.Sprintf("\"%s\":", tag)) {
+					tagsToAppend = append(tagsToAppend, tag)
+				}
+			}
+
+			// 如果有需要追加的标签
+			if len(tagsToAppend) > 0 {
+				// 在映射的结尾前追加新标签
+				closeBraceIndex := strings.LastIndex(mapMatch, "}")
+				if closeBraceIndex > 0 {
+					mapContentBeforeBrace := mapMatch[:closeBraceIndex]
+
+					// 添加新的标签
+					var newTagsContent strings.Builder
+					for _, tag := range tagsToAppend {
+						newTagsContent.WriteString(fmt.Sprintf(CustomValidationMapTemplate, tag, strings.Title(tag), tag))
+					}
+
+					// 重建映射内容
+					updatedMapContent := mapContentBeforeBrace + newTagsContent.String() + "}"
+
+					// 替换原有的映射
+					newValidationContent = mapRegex.ReplaceAllString(validationContent, updatedMapContent)
+				} else {
+					// 如果无法找到闭合括号，使用完整替换方法
+					newValidationContent = mapRegex.ReplaceAllString(validationContent, newMapContent.String())
+				}
+			} else {
+				// 没有需要追加的标签，保持原样
+				newValidationContent = validationContent
+			}
 
 			// 移除validate变量的声明(如果存在)
 			validateVarPattern := `var validate = validator\.New\(\)\n*`
