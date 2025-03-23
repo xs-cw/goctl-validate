@@ -2,8 +2,8 @@ package types
 
 import (
 	"errors"
-	"fmt"
 	"github.com/go-playground/validator/v10"
+	"strings"
 
 	"github.com/go-playground/locales/en"
 	"github.com/go-playground/locales/zh"
@@ -40,12 +40,18 @@ func Translate(err error) error {
 		return nil
 	}
 
-	validationErrors, ok := err.(validator.ValidationErrors)
+	errs, ok := err.(validator.ValidationErrors)
 	if !ok {
 		return err
 	}
 
-	return errors.New(validationErrors.Translate(trans)[0])
+	var errMsgs []string
+	for _, e := range errs {
+		translatedErr := e.Translate(trans)
+		errMsgs = append(errMsgs, translatedErr)
+	}
+	// TODO 可以自定义错误类型
+	return errors.New(strings.Join(errMsgs, ", "))
 }
 
 // 注册自定义翻译

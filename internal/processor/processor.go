@@ -89,78 +89,6 @@ func validateIdCard(fl validator.FieldLevel) bool {
 	ut "github.com/go-playground/universal-translator"
 	zhTrans "github.com/go-playground/validator/v10/translations/zh"
 `
-
-	// 翻译器变量声明
-	//	TranslatorVars = `
-	//var (
-	//	uni      *ut.UniversalTranslator
-	//	trans    ut.Translator
-	//	validate *validator.Validate
-	//)`
-
-	// 翻译器初始化函数
-	TranslatorInitFunc = `
-// 初始化翻译器
-func init() {
-	// 初始化翻译器
-	enLocale := en.New()
-	zhLocale := zh.New()
-	uni = ut.New(enLocale, zhLocale)
-
-	trans, _ = uni.GetTranslator("zh")
-	validate = validator.New()
-
-	// 注册默认翻译
-	_ = zhTrans.RegisterDefaultTranslations(validate, trans)
-
-	// 注册自定义翻译
-	registerCustomTranslations(validate, trans)
-}`
-
-	// 翻译错误处理函数
-	TranslateErrorFunc = `
-// Translate 翻译验证错误
-func Translate(err error) error {
-	if err == nil {
-		return nil
-	}
-	
-	errs, ok := err.(validator.ValidationErrors)
-	if !ok {
-		return err
-	}
-
-	var errMsgs []string
-	for _, e := range errs {
-		translatedErr := e.Translate(trans)
-		errMsgs = append(errMsgs, translatedErr)
-	}
-	// TODO 可以自定义错误类型
-	return errors.New(strings.Join(errMsgs, ", "))
-}`
-
-	// 自定义标签翻译注册函数开始
-	CustomTranslationsFunc = `
-// 注册自定义翻译
-func registerCustomTranslations(validate *validator.Validate, trans ut.Translator) {
-	// 内置自定义验证器的翻译
-	_ = trans.Add("mobile", "{0}手机号码格式不正确", false)
-	_ = validate.RegisterTranslation("mobile", trans, func(ut ut.Translator) error {
-		return nil
-	}, func(ut ut.Translator, fe validator.FieldError) string {
-		t, _ := ut.T("mobile", fe.Field())
-		return t
-	})
-
-	_ = trans.Add("idcard", "{0}身份证号码格式不正确", false)
-	_ = validate.RegisterTranslation("idcard", trans, func(ut ut.Translator) error {
-		return nil
-	}, func(ut ut.Translator, fe validator.FieldError) string {
-		t, _ := ut.T("idcard", fe.Field())
-		return t
-	})
-}`
-
 	// 自定义标签翻译注册模板
 	CustomTranslationTemplate = `
 	_ = trans.Add("%s", "{0}%s", false)
@@ -596,22 +524,94 @@ func ProcessTypesFile(filePath string, options Options) error {
 			// 添加导入
 			translatorFileContent.WriteString("import (\n")
 			translatorFileContent.WriteString("\t\"errors\"\n")
-			//translatorFileContent.WriteString("\t\"fmt\"\n")
+			translatorFileContent.WriteString("\t\"strings\"\n")
 			translatorFileContent.WriteString("\t\"github.com/go-playground/validator/v10\"\n")
 			translatorFileContent.WriteString(TranslatorImports)
 			translatorFileContent.WriteString(")\n\n")
 
 			// 添加翻译器变量
-			//translatorFileContent.WriteString(TranslatorVars + "\n")
+			translatorFileContent.WriteString("var (\n")
+			translatorFileContent.WriteString("\tuni      *ut.UniversalTranslator\n")
+			translatorFileContent.WriteString("\ttrans    ut.Translator\n")
+			translatorFileContent.WriteString(")\n\n")
 
 			// 添加翻译器初始化函数
-			translatorFileContent.WriteString(TranslatorInitFunc + "\n")
+			translatorFileContent.WriteString("// 初始化翻译器\n")
+			translatorFileContent.WriteString("func init() {\n")
+			translatorFileContent.WriteString("\t// 初始化翻译器\n")
+			translatorFileContent.WriteString("\tenLocale := en.New()\n")
+			translatorFileContent.WriteString("\tzhLocale := zh.New()\n")
+			translatorFileContent.WriteString("\tuni = ut.New(enLocale, zhLocale)\n\n")
+			translatorFileContent.WriteString("\ttrans, _ = uni.GetTranslator(\"zh\")\n")
+			translatorFileContent.WriteString("\t// 注册默认翻译\n")
+			translatorFileContent.WriteString("\t_ = zhTrans.RegisterDefaultTranslations(validate, trans)\n\n")
+			translatorFileContent.WriteString("\t// 注册自定义翻译\n")
+			translatorFileContent.WriteString("\tregisterCustomTranslations(validate, trans)\n")
+			translatorFileContent.WriteString("}\n\n")
 
 			// 添加错误翻译函数
-			translatorFileContent.WriteString(TranslateErrorFunc + "\n")
+			translatorFileContent.WriteString("// Translate 翻译验证错误\n")
+			translatorFileContent.WriteString("func Translate(err error) error {\n")
+			translatorFileContent.WriteString("\tif err == nil {\n")
+			translatorFileContent.WriteString("\t\treturn nil\n")
+			translatorFileContent.WriteString("\t}\n\n")
+			translatorFileContent.WriteString("\terrs, ok := err.(validator.ValidationErrors)\n")
+			translatorFileContent.WriteString("\tif !ok {\n")
+			translatorFileContent.WriteString("\t\treturn err\n")
+			translatorFileContent.WriteString("\t}\n\n")
+			translatorFileContent.WriteString("\tvar errMsgs []string\n")
+			translatorFileContent.WriteString("\tfor _, e := range errs {\n")
+			translatorFileContent.WriteString("\t\ttranslatedErr := e.Translate(trans)\n")
+			translatorFileContent.WriteString("\t\terrMsgs = append(errMsgs, translatedErr)\n")
+			translatorFileContent.WriteString("\t}\n")
+			translatorFileContent.WriteString("\t// TODO 可以自定义错误类型\n")
+			translatorFileContent.WriteString("\treturn errors.New(strings.Join(errMsgs, \", \"))\n")
+			translatorFileContent.WriteString("}\n\n")
 
 			// 添加自定义翻译注册函数
-			translatorFileContent.WriteString(CustomTranslationsFunc + "\n")
+			translatorFileContent.WriteString("// 注册自定义翻译\n")
+			translatorFileContent.WriteString("func registerCustomTranslations(validate *validator.Validate, trans ut.Translator) {\n")
+			translatorFileContent.WriteString("\t// 内置自定义验证器的翻译\n")
+			translatorFileContent.WriteString("\t_ = trans.Add(\"mobile\", \"{0}手机号码格式不正确\", false)\n")
+			translatorFileContent.WriteString("\t_ = validate.RegisterTranslation(\"mobile\", trans, func(ut ut.Translator) error {\n")
+			translatorFileContent.WriteString("\t\treturn nil\n")
+			translatorFileContent.WriteString("\t}, func(ut ut.Translator, fe validator.FieldError) string {\n")
+			translatorFileContent.WriteString("\t\tt, _ := ut.T(\"mobile\", fe.Field())\n")
+			translatorFileContent.WriteString("\t\treturn t\n")
+			translatorFileContent.WriteString("\t})\n\n")
+			translatorFileContent.WriteString("\t_ = trans.Add(\"idcard\", \"{0}身份证号码格式不正确\", false)\n")
+			translatorFileContent.WriteString("\t_ = validate.RegisterTranslation(\"idcard\", trans, func(ut ut.Translator) error {\n")
+			translatorFileContent.WriteString("\t\treturn nil\n")
+			translatorFileContent.WriteString("\t}, func(ut ut.Translator, fe validator.FieldError) string {\n")
+			translatorFileContent.WriteString("\t\tt, _ := ut.T(\"idcard\", fe.Field())\n")
+			translatorFileContent.WriteString("\t\treturn t\n")
+			translatorFileContent.WriteString("\t})\n")
+
+			// 为自定义标签添加初始翻译
+			for tag := range customTags {
+				if !isBuiltInValidator(tag) {
+					// 为新标签生成默认翻译文本
+					var description string
+					switch tag {
+					case "uuid":
+						description = "格式不正确"
+					case "datetime":
+						description = "日期格式不正确"
+					default:
+						description = "格式不符合要求"
+					}
+
+					translatorFileContent.WriteString(fmt.Sprintf("\n\t_ = trans.Add(\"%s\", \"{0}%s\", false)\n", tag, description))
+					translatorFileContent.WriteString(fmt.Sprintf("\t_ = validate.RegisterTranslation(\"%s\", trans, func(ut ut.Translator) error {\n", tag))
+					translatorFileContent.WriteString("\t\treturn nil\n")
+					translatorFileContent.WriteString("\t}, func(ut ut.Translator, fe validator.FieldError) string {\n")
+					translatorFileContent.WriteString(fmt.Sprintf("\t\tt, _ := ut.T(\"%s\", fe.Field())\n", tag))
+					translatorFileContent.WriteString("\t\treturn t\n")
+					translatorFileContent.WriteString("\t})\n")
+				}
+			}
+
+			translatorFileContent.WriteString("}\n")
 
 			// 格式化并写入翻译器文件
 			formatted, err := format.Source([]byte(translatorFileContent.String()))
@@ -667,7 +667,7 @@ func ProcessTypesFile(filePath string, options Options) error {
 					switch tag {
 					case "uuid":
 						description = "格式不正确"
-					case "datetime":
+					case "datetime", "date", "time":
 						description = "日期格式不正确"
 					default:
 						description = "格式不符合要求"

@@ -32,16 +32,13 @@ type TestNewReq struct {
 var validate = validator.New()
 
 func (r *CreateItemReq) Validate() error {
-	err := validate.Struct(r)
-	return TranslateError(err)
+	return validate.Struct(r)
 }
 
 func (r *StatusReq) Validate() error {
-	err := validate.Struct(r)
-	return TranslateError(err)
+	return validate.Struct(r)
 }
 
 func (r *TestNewReq) Validate() error {
-	err := validate.Struct(r)
-	return TranslateError(err)
+	return validate.Struct(r)
 }
