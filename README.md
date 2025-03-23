@@ -163,8 +163,10 @@ import (
     zhTrans "github.com/go-playground/validator/v10/translations/zh"
 )
 
-// 全局翻译器
-var trans ut.Translator
+var (
+	uni   *ut.UniversalTranslator
+	trans ut.Translator
+)
 
 // 初始化翻译器
 func init() {
@@ -183,18 +185,26 @@ func init() {
     registerCustomTranslations(validate, trans)
 }
 
-// TranslateError 将验证错误翻译为中文
-func TranslateError(err error) error {
-    if err != nil {
-        var v validator.ValidationErrors
-        if errors.As(err, &v) {
-            for _, e := range v {
-                return fmt.Errorf("%s", e.Translate(trans))
-            }
-        }
-    }
-    return err
+// Translate 翻译验证错误
+func Translate(err error) error {
+	if err == nil {
+		return nil
+	}
+
+	var errs validator.ValidationErrors
+	if ok := errors.As(err, &errs); !ok {
+		return err
+	}
+
+	var errMsgs []string
+	for _, e := range errs {
+		translatedErr := e.Translate(trans)
+		errMsgs = append(errMsgs, translatedErr)
+	}
+	// TODO 可以自定义错误类型
+	return errors.New(strings.Join(errMsgs, ", "))
 }
+
 
 // registerCustomTranslations 注册自定义验证标签的翻译
 func registerCustomTranslations(validate *validator.Validate, trans ut.Translator) {
@@ -213,44 +223,6 @@ func registerCustomTranslations(validate *validator.Validate, trans ut.Translato
         t, _ := ut.T("idcard", fe.Field())
         return t
     })
-
-    // 注册UUID验证的翻译
-    _ = validate.RegisterTranslation("uuid", trans, func(ut ut.Translator) error {
-        return ut.Add("uuid", "{0}格式不正确", true)
-    }, func(ut ut.Translator, fe validator.FieldError) string {
-        t, _ := ut.T("uuid", fe.Field())
-        return t
-    })
-
-    // 注册日期时间验证的翻译
-    _ = validate.RegisterTranslation("datetime", trans, func(ut ut.Translator) error {
-        return ut.Add("datetime", "{0}日期格式不正确", true)
-    }, func(ut ut.Translator, fe validator.FieldError) string {
-        t, _ := ut.T("datetime", fe.Field())
-        return t
-    })
-}
-```
-
-同时，启用了翻译器的`types.go`文件中的Validate方法会更新为：
-
-```go
-func (r *StatusReq) Validate() error {
-    err := validate.Struct(r)
-    return TranslateError(err)
-}
-```
-
-## 验证标签
-
-您可以在API结构体字段定义中使用validator的标签来定义验证规则：
-
-```api
-type CreateUserReq {
-    Username string `json:"username" validate:"required,min=4,max=20"`
-    Email    string `json:"email" validate:"required,email"`
-    Age      int    `json:"age" validate:"gte=18,lte=120"`
-    Mobile   string `json:"mobile" validate:"mobile"` // 使用自定义验证
 }
 ```
 
@@ -277,15 +249,3 @@ type CreateUserReq {
 | idcard | 身份证号验证（自定义） | `validate:"idcard"` |
 
 有关可用验证标签的完整列表，请参阅[validator文档](https://pkg.go.dev/github.com/go-playground/validator/v10)。
-
-## 错误翻译
-
-当使用`--translator`标志启用翻译器功能时，验证错误消息将自动翻译为中文。例如：
-
-| 错误类型 | 原始错误信息 | 翻译后的错误信息 |
-|--------|------------|--------------|
-| required | Field is required | 字段不能为空 |
-| email | Invalid email format | 字段必须是一个有效的邮箱 |
-| min | Field must be at least X long | 字段长度必须至少为X个字符 |
-| mobile | Invalid mobile format | 字段必须是有效的手机号码 |
-| idcard | Invalid ID card format | 字段必须是有效的身份证号码 |
