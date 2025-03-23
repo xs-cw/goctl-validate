@@ -268,20 +268,28 @@ func ProcessTypesFile(filePath string, options Options) error {
 							// 提取验证标签
 							validateTag := extractValidateTag(tag)
 							if validateTag != "" {
-								// 分析验证标签中的自定义验证器
+								// 分析验证标签中的所有验证器
 								validators := strings.Split(validateTag, ",")
 								for _, v := range validators {
 									// 提取验证器名称，如min=10中的min
 									parts := strings.Split(v, "=")
 									baseValidator := parts[0]
 
-									// 跳过内置验证器和空验证器
-									if baseValidator == "" || isBuiltInValidator(baseValidator) {
+									// 跳过空验证器
+									if baseValidator == "" {
+										continue
+									}
+
+									// 跳过内置验证器
+									if isBuiltInValidator(baseValidator) {
 										continue
 									}
 
 									// 添加自定义验证标签 - 使用基础验证器名称
 									customTags[baseValidator] = true
+									if options.DebugMode {
+										fmt.Printf("找到自定义验证标签: %s\n", baseValidator)
+									}
 
 									// 确认该验证器的验证函数是否已经存在
 									if bytes.Contains(fileContent, []byte(fmt.Sprintf("func validate%s", strings.Title(baseValidator)))) {
@@ -802,8 +810,20 @@ func ProcessTypesFile(filePath string, options Options) error {
 			// 检查哪些标签需要被追加
 			var tagsToAppend []string
 			for _, tag := range allTags {
-				if tag != "mobile" && tag != "idcard" && !strings.Contains(mapMatch, fmt.Sprintf("\"%s\":", tag)) {
-					tagsToAppend = append(tagsToAppend, tag)
+				if tag != "mobile" && tag != "idcard" {
+					// 使用正则表达式更精确地匹配标签
+					tagPattern := regexp.MustCompile(fmt.Sprintf(`"(%s)":\s*validate\w+`, regexp.QuoteMeta(tag)))
+					if !tagPattern.MatchString(mapMatch) {
+						tagsToAppend = append(tagsToAppend, tag)
+					}
+				}
+			}
+
+			// 调试输出
+			if options.DebugMode {
+				fmt.Println("需要追加的标签:")
+				for _, tag := range tagsToAppend {
+					fmt.Printf("  - %s\n", tag)
 				}
 			}
 
@@ -841,7 +861,28 @@ func ProcessTypesFile(filePath string, options Options) error {
 
 			// 添加缺失的验证函数到文件末尾
 			if missingFuncContent.Len() > 0 {
-				newValidationContent = newValidationContent + "\n" + missingFuncContent.String()
+				// 检查每个缺失标签的验证函数是否已存在
+				var reallyMissingTags []string
+				for _, tag := range missingTags {
+					functionPattern := regexp.MustCompile(fmt.Sprintf(`func validate%s\s*\(fl validator\.FieldLevel\) bool`, strings.Title(tag)))
+					if !functionPattern.MatchString(newValidationContent) {
+						reallyMissingTags = append(reallyMissingTags, tag)
+					}
+				}
+
+				// 如果确实有缺失的函数，才添加
+				if len(reallyMissingTags) > 0 {
+					var reallyMissingContent strings.Builder
+					for _, tag := range reallyMissingTags {
+						reallyMissingContent.WriteString(fmt.Sprintf(CustomValidationFuncTemplate, tag, strings.Title(tag), tag))
+					}
+
+					newValidationContent = newValidationContent + "\n" + reallyMissingContent.String()
+
+					if options.DebugMode {
+						fmt.Printf("添加了 %d 个缺失的验证函数\n", len(reallyMissingTags))
+					}
+				}
 			}
 		} else {
 			// 如果是旧格式或者格式不匹配，创建一个全新的内容
