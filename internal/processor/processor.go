@@ -271,17 +271,21 @@ func ProcessTypesFile(filePath string, options Options) error {
 								// 分析验证标签中的自定义验证器
 								validators := strings.Split(validateTag, ",")
 								for _, v := range validators {
+									// 提取验证器名称，如min=10中的min
+									parts := strings.Split(v, "=")
+									baseValidator := parts[0]
+
 									// 跳过内置验证器和空验证器
-									if v == "" || isBuiltInValidator(v) {
+									if baseValidator == "" || isBuiltInValidator(baseValidator) {
 										continue
 									}
 
-									// 添加自定义验证标签
-									customTags[v] = true
+									// 添加自定义验证标签 - 使用基础验证器名称
+									customTags[baseValidator] = true
 
 									// 确认该验证器的验证函数是否已经存在
-									if bytes.Contains(fileContent, []byte(fmt.Sprintf("func validate%s", strings.Title(v)))) {
-										existingValidations[v] = true
+									if bytes.Contains(fileContent, []byte(fmt.Sprintf("func validate%s", strings.Title(baseValidator)))) {
+										existingValidations[baseValidator] = true
 									}
 								}
 							}
@@ -1007,8 +1011,6 @@ func extractValidateTag(tag string) string {
 func isBuiltInValidator(validator string) bool {
 	builtInValidators := map[string]bool{
 		"required": true,
-		"mobile":   true,
-		"idcard":   true,
 		"email":    true,
 		"url":      true,
 		"ip":       true,
@@ -1027,10 +1029,14 @@ func isBuiltInValidator(validator string) bool {
 		"alphanum": true,
 	}
 
-	// 检查是否是带参数的内置验证器，如min=10
-	parts := strings.Split(validator, "=")
-	if len(parts) > 1 {
-		return builtInValidators[parts[0]]
+	// mobile和idcard是我们自定义的，但它们是内置在插件中的验证器
+	builtInCustomValidators := map[string]bool{
+		"mobile": true,
+		"idcard": true,
+	}
+
+	if builtInCustomValidators[validator] {
+		return true
 	}
 
 	return builtInValidators[validator]
