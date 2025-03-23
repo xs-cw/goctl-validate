@@ -22,6 +22,7 @@ func Parse(r *http.Request, v any) error {
 - 支持多个请求结构体
 - 支持自定义验证方法（通过`--custom`标志启用）
 - 支持调试模式（通过`--debug`标志启用）
+- 支持验证错误翻译器（通过`--translator`标志启用，默认为中文）
 - 智能处理生成的types.go文件，保持正确的包声明位置
 
 
@@ -48,11 +49,14 @@ goctl api plugin -p goctl-validate="validate" --api your_api.api --dir .
 # 启用自定义验证方法
 goctl api plugin -p goctl-validate="validate --custom" --api your_api.api --dir .
 
+# 启用验证错误翻译器（默认中文）
+goctl api plugin -p goctl-validate="validate --translator" --api your_api.api --dir .
+
 # 启用调试模式（用于排查问题）
 goctl api plugin -p goctl-validate="validate --debug" --api your_api.api --dir .
 
-# 同时启用自定义验证和调试模式
-goctl api plugin -p goctl-validate="validate --custom --debug" --api your_api.api --dir .
+# 同时启用多个选项
+goctl api plugin -p goctl-validate="validate --custom --translator --debug" --api your_api.api --dir .
 ```
 
 
@@ -100,18 +104,140 @@ func (r *CreateItemReq) Validate() error {
 }
 ```
 
-如果使用了`--custom`标志，还会添加以下代码：
+如果使用了`--custom`标志，还会生成一个`validation.go`文件，添加自定义验证方法：
 
 ```go
-func init() {
-    // 注册自定义验证方法
-    validate.RegisterValidation("custom_validation", customValidation)
+// validation.go
+package types
+
+import (
+    "regexp"
+    "github.com/go-playground/validator/v10"
+)
+
+// registerValidation 存储所有的验证方法
+// key: 验证标签名称，value: 对应的验证函数
+var registerValidation = map[string]validator.Func{
+    "mobile": validateMobile, // 手机号验证
+    "idcard": validateIdCard, // 身份证号验证
 }
 
-// 自定义验证方法示例
-func customValidation(fl validator.FieldLevel) bool {
-    // 在这里实现自定义验证逻辑
-    return true
+// 初始化并注册所有验证方法
+func init() {
+    // 遍历注册所有验证方法
+    for tag, handler := range registerValidation {
+        _ = validate.RegisterValidation(tag, handler)
+    }
+}
+
+// 验证手机号
+func validateMobile(fl validator.FieldLevel) bool {
+    mobile := fl.Field().String()
+    // 使用正则表达式验证中国大陆手机号(13,14,15,16,17,18,19开头的11位数字)
+    match, _ := regexp.MatchString("^1[3-9]\\d{9}$", mobile)
+    return match
+}
+
+// 验证身份证号
+func validateIdCard(fl validator.FieldLevel) bool {
+    idCard := fl.Field().String()
+    // 支持15位或18位身份证号
+    match, _ := regexp.MatchString("(^\\d{15}$)|(^\\d{18}$)|(^\\d{17}(\\d|X|x)$)", idCard)
+    return match
+}
+```
+
+如果使用了`--translator`标志，还会生成一个`translator.go`文件，添加验证错误翻译功能：
+
+```go
+// translator.go
+package types
+
+import (
+    "errors"
+    "fmt"
+    "github.com/go-playground/validator/v10"
+    "github.com/go-playground/locales/en"
+    "github.com/go-playground/locales/zh"
+    ut "github.com/go-playground/universal-translator"
+    zhTrans "github.com/go-playground/validator/v10/translations/zh"
+)
+
+// 全局翻译器
+var trans ut.Translator
+
+// 初始化翻译器
+func init() {
+    // 创建中文翻译器
+    zhLoc := zh.New()
+    enLoc := en.New()
+    
+    // 创建通用翻译器并设置为中文
+    uni := ut.New(enLoc, zhLoc)
+    trans, _ = uni.GetTranslator("zh")
+    
+    // 注册默认的中文翻译
+    _ = zhTrans.RegisterDefaultTranslations(validate, trans)
+    
+    // 注册自定义验证标签的翻译
+    registerCustomTranslations(validate, trans)
+}
+
+// TranslateError 将验证错误翻译为中文
+func TranslateError(err error) error {
+    if err != nil {
+        var v validator.ValidationErrors
+        if errors.As(err, &v) {
+            for _, e := range v {
+                return fmt.Errorf("%s", e.Translate(trans))
+            }
+        }
+    }
+    return err
+}
+
+// registerCustomTranslations 注册自定义验证标签的翻译
+func registerCustomTranslations(validate *validator.Validate, trans ut.Translator) {
+    // 注册手机号验证的翻译
+    _ = validate.RegisterTranslation("mobile", trans, func(ut ut.Translator) error {
+        return ut.Add("mobile", "{0}必须是有效的手机号码", true)
+    }, func(ut ut.Translator, fe validator.FieldError) string {
+        t, _ := ut.T("mobile", fe.Field())
+        return t
+    })
+
+    // 注册身份证验证的翻译
+    _ = validate.RegisterTranslation("idcard", trans, func(ut ut.Translator) error {
+        return ut.Add("idcard", "{0}必须是有效的身份证号码", true)
+    }, func(ut ut.Translator, fe validator.FieldError) string {
+        t, _ := ut.T("idcard", fe.Field())
+        return t
+    })
+
+    // 注册UUID验证的翻译
+    _ = validate.RegisterTranslation("uuid", trans, func(ut ut.Translator) error {
+        return ut.Add("uuid", "{0}格式不正确", true)
+    }, func(ut ut.Translator, fe validator.FieldError) string {
+        t, _ := ut.T("uuid", fe.Field())
+        return t
+    })
+
+    // 注册日期时间验证的翻译
+    _ = validate.RegisterTranslation("datetime", trans, func(ut ut.Translator) error {
+        return ut.Add("datetime", "{0}日期格式不正确", true)
+    }, func(ut ut.Translator, fe validator.FieldError) string {
+        t, _ := ut.T("datetime", fe.Field())
+        return t
+    })
+}
+```
+
+同时，启用了翻译器的`types.go`文件中的Validate方法会更新为：
+
+```go
+func (r *StatusReq) Validate() error {
+    err := validate.Struct(r)
+    return TranslateError(err)
 }
 ```
 
@@ -124,7 +250,7 @@ type CreateUserReq {
     Username string `json:"username" validate:"required,min=4,max=20"`
     Email    string `json:"email" validate:"required,email"`
     Age      int    `json:"age" validate:"gte=18,lte=120"`
-    Profile  string `json:"profile" validate:"custom_validation"` // 使用自定义验证
+    Mobile   string `json:"mobile" validate:"mobile"` // 使用自定义验证
 }
 ```
 
@@ -147,5 +273,19 @@ type CreateUserReq {
 | numeric | 数字（整数或小数） | `validate:"numeric"` |
 | alpha | 字母字符 | `validate:"alpha"` |
 | alphanum | 字母数字字符 | `validate:"alphanum"` |
+| mobile | 手机号验证（自定义） | `validate:"mobile"` |
+| idcard | 身份证号验证（自定义） | `validate:"idcard"` |
 
 有关可用验证标签的完整列表，请参阅[validator文档](https://pkg.go.dev/github.com/go-playground/validator/v10)。
+
+## 错误翻译
+
+当使用`--translator`标志启用翻译器功能时，验证错误消息将自动翻译为中文。例如：
+
+| 错误类型 | 原始错误信息 | 翻译后的错误信息 |
+|--------|------------|--------------|
+| required | Field is required | 字段不能为空 |
+| email | Invalid email format | 字段必须是一个有效的邮箱 |
+| min | Field must be at least X long | 字段长度必须至少为X个字符 |
+| mobile | Invalid mobile format | 字段必须是有效的手机号码 |
+| idcard | Invalid ID card format | 字段必须是有效的身份证号码 |

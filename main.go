@@ -17,6 +17,8 @@ var (
 	enableCustomValidation bool
 	// 是否启用调试模式
 	debugMode bool
+	// 是否启用翻译器功能
+	enableTranslator bool
 
 	rootCmd = &cobra.Command{
 		Use:     "validate",
@@ -32,6 +34,7 @@ var (
 			options := processor.Options{
 				EnableCustomValidation: enableCustomValidation,
 				DebugMode:              debugMode,
+				EnableTranslator:       enableTranslator,
 			}
 
 			return validator.ProcessPlugin(p, options)
@@ -42,6 +45,7 @@ var (
 func init() {
 	rootCmd.Flags().BoolVar(&enableCustomValidation, "custom", false, "Enable custom validation methods")
 	rootCmd.Flags().BoolVar(&debugMode, "debug", false, "Enable debug mode")
+	rootCmd.Flags().BoolVar(&enableTranslator, "translator", false, "Enable validation error translator (default: Chinese)")
 }
 
 func main() {
