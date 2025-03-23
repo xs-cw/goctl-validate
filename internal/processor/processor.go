@@ -320,10 +320,34 @@ func ProcessTypesFile(filePath string, options Options) error {
 		validationContent = string(validationBytes)
 		validationExists = true
 
-		// 检查现有验证文件中的验证函数
-		for tag := range customTags {
-			if bytes.Contains(validationBytes, []byte(fmt.Sprintf("func validate%s", strings.Title(tag)))) {
-				existingValidations[tag] = true
+		// 检查现有验证文件中的验证函数和注册标签
+		funcRegex := regexp.MustCompile(`func validate(\w+)\(fl validator\.FieldLevel\) bool`)
+		tagRegex := regexp.MustCompile(`\t"(\w+)":\s*validate\w+,.*`)
+
+		// 查找所有的验证函数
+		funcMatches := funcRegex.FindAllStringSubmatch(validationContent, -1)
+		for _, match := range funcMatches {
+			if len(match) > 1 {
+				// 提取函数名，如AgeRange，变为小写作为tag
+				funcName := match[1]
+				if funcName != "Mobile" && funcName != "IdCard" { // 跳过内置函数
+					tag := strings.ToLower(funcName[0:1]) + funcName[1:]
+					existingValidations[tag] = true
+					// 确保每个验证函数的标签也添加到customTags中
+					customTags[tag] = true
+				}
+			}
+		}
+
+		// 查找所有注册的标签
+		tagMatches := tagRegex.FindAllStringSubmatch(validationContent, -1)
+		for _, match := range tagMatches {
+			if len(match) > 1 {
+				tag := match[1]
+				if tag != "mobile" && tag != "idcard" {
+					// 确保每个已注册的标签也添加到customTags中
+					customTags[tag] = true
+				}
 			}
 		}
 	}
@@ -695,6 +719,25 @@ func ProcessTypesFile(filePath string, options Options) error {
 				if !exists {
 					allTags = append(allTags, tag)
 				}
+			}
+		}
+
+		// 确保customTags中也有现有的验证标签，这样才能生成对应的验证函数
+		for tag := range existingRegs {
+			if tag != "mobile" && tag != "idcard" {
+				customTags[tag] = true
+			}
+		}
+
+		// 打印调试信息
+		if options.DebugMode {
+			fmt.Println("收集到的自定义标签:")
+			for tag := range customTags {
+				fmt.Printf("  - %s\n", tag)
+			}
+			fmt.Println("所有标签排序后:")
+			for _, tag := range allTags {
+				fmt.Printf("  - %s\n", tag)
 			}
 		}
 
