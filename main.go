@@ -45,7 +45,7 @@ var (
 )
 
 func init() {
-	rootCmd.Flags().BoolVar(&enableValidation, "all", true, "启用完整验证（包含自定义验证和错误翻译功能）")
+	rootCmd.Flags().BoolVar(&enableValidation, "full", true, "启用完整验证（包含自定义验证和错误翻译功能）")
 	rootCmd.Flags().BoolVar(&debugMode, "debug", false, "启用调试模式")
 	rootCmd.Flags().StringVar(&translationLanguage, "lang", "zh", "翻译语言 (默认: zh 中文)")
 }
