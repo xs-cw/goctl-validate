@@ -572,14 +572,14 @@ func ProcessTypesFile(filePath string, options Options) error {
 			translatorFileContent.WriteString("// 注册自定义翻译\n")
 			translatorFileContent.WriteString("func registerCustomTranslations(validate *validator.Validate, trans ut.Translator) {\n")
 			translatorFileContent.WriteString("\t// 内置自定义验证器的翻译\n")
-			translatorFileContent.WriteString("\t_ = trans.Add(\"mobile\", \"{0}手机号码格式不正确\", false)\n")
+			translatorFileContent.WriteString("\t_ = trans.Add(\"mobile\", \"{0}手机号码格式不正确\", true)\n")
 			translatorFileContent.WriteString("\t_ = validate.RegisterTranslation(\"mobile\", trans, func(ut ut.Translator) error {\n")
 			translatorFileContent.WriteString("\t\treturn nil\n")
 			translatorFileContent.WriteString("\t}, func(ut ut.Translator, fe validator.FieldError) string {\n")
 			translatorFileContent.WriteString("\t\tt, _ := ut.T(\"mobile\", fe.Field())\n")
 			translatorFileContent.WriteString("\t\treturn t\n")
 			translatorFileContent.WriteString("\t})\n\n")
-			translatorFileContent.WriteString("\t_ = trans.Add(\"idcard\", \"{0}身份证号码格式不正确\", false)\n")
+			translatorFileContent.WriteString("\t_ = trans.Add(\"idcard\", \"{0}身份证号码格式不正确\", true)\n")
 			translatorFileContent.WriteString("\t_ = validate.RegisterTranslation(\"idcard\", trans, func(ut ut.Translator) error {\n")
 			translatorFileContent.WriteString("\t\treturn nil\n")
 			translatorFileContent.WriteString("\t}, func(ut ut.Translator, fe validator.FieldError) string {\n")
@@ -601,7 +601,7 @@ func ProcessTypesFile(filePath string, options Options) error {
 						description = "格式不符合要求"
 					}
 
-					translatorFileContent.WriteString(fmt.Sprintf("\n\t_ = trans.Add(\"%s\", \"{0}%s\", false)\n", tag, description))
+					translatorFileContent.WriteString(fmt.Sprintf("\n\t_ = trans.Add(\"%s\", \"{0}%s\", true)\n", tag, description))
 					translatorFileContent.WriteString(fmt.Sprintf("\t_ = validate.RegisterTranslation(\"%s\", trans, func(ut ut.Translator) error {\n", tag))
 					translatorFileContent.WriteString("\t\treturn nil\n")
 					translatorFileContent.WriteString("\t}, func(ut ut.Translator, fe validator.FieldError) string {\n")
