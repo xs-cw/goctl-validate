@@ -2,10 +2,9 @@ package main
 
 import (
 	"fmt"
-	"os"
-
 	"github.com/linabellbiu/goctl-validate/internal/processor"
 	"github.com/linabellbiu/goctl-validate/internal/validator"
+	"os"
 
 	"github.com/spf13/cobra"
 	"github.com/zeromicro/go-zero/tools/goctl/plugin"
@@ -14,12 +13,10 @@ import (
 var (
 	// 版本信息
 	version = "1.1.0"
+	// 是否添加自定义验证方法
+	enableCustomValidation bool
 	// 是否启用调试模式
 	debugMode bool
-	// 翻译语言，默认为中文
-	translationLanguage string
-	// 是否启用验证功能（自定义验证和翻译）
-	enableValidation bool
 
 	rootCmd = &cobra.Command{
 		Use:     "validate",
@@ -33,10 +30,8 @@ var (
 
 			// 设置处理选项
 			options := processor.Options{
-				EnableCustomValidation: enableValidation, // 自动启用自定义验证
+				EnableCustomValidation: enableCustomValidation,
 				DebugMode:              debugMode,
-				EnableTranslation:      enableValidation, // 自动启用翻译功能
-				TranslationLanguage:    translationLanguage,
 			}
 
 			return validator.ProcessPlugin(p, options)
@@ -45,9 +40,8 @@ var (
 )
 
 func init() {
-	rootCmd.Flags().BoolVar(&enableValidation, "full", true, "启用完整验证（包含自定义验证和错误翻译功能）")
-	rootCmd.Flags().BoolVar(&debugMode, "debug", false, "启用调试模式")
-	rootCmd.Flags().StringVar(&translationLanguage, "lang", "zh", "翻译语言 (默认: zh 中文)")
+	rootCmd.Flags().BoolVar(&enableCustomValidation, "custom", false, "Enable custom validation methods")
+	rootCmd.Flags().BoolVar(&debugMode, "debug", false, "Enable debug mode")
 }
 
 func main() {

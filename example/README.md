@@ -33,9 +33,6 @@ goctl api plugin -p goctl-validate="validate" --api example.api --dir .
 
 # 添加自定义验证方法
 goctl api plugin -p goctl-validate="validate --custom" --api example.api --dir .
-
-# 添加验证错误信息翻译（默认中文）
-goctl api plugin -p goctl-validate="validate --trans" --api example.api --dir .
 ```
 
 4. 验证生成的 `types.go` 文件，确认已添加了验证逻辑：
@@ -57,76 +54,19 @@ func (r *CreateItemReq) Validate() error {
 }
 ```
 
-5. 如果启用了翻译功能，将看到额外的翻译相关代码：
+5. 在处理程序中使用验证方法：
 
 ```go
-import (
-    "regexp"
-    "strings"
-    "github.com/go-playground/validator/v10"
-    "github.com/go-playground/locales/zh"
-    ut "github.com/go-playground/universal-translator"
-    zhTranslations "github.com/go-playground/validator/v10/translations/zh"
-)
-
-var validate = validator.New()
-
-// 全局翻译器
-var (
-    translator ut.Translator
-    uni *ut.UniversalTranslator
-)
-
-// 初始化并注册所有验证方法
-func init() {
-    // 注册验证方法
-    for tag, handler := range registerValidation {
-        _ = validate.RegisterValidation(tag, handler)
-    }
-    
-    // 中文翻译器初始化
-    zh := zh.New()
-    uni = ut.New(zh, zh)
-    translator, _ = uni.GetTranslator("zh")
-    // 注册翻译器
-    _ = zhTranslations.RegisterDefaultTranslations(validate, translator)
-}
-
-// TranslateError 翻译验证错误信息
-func TranslateError(err error) string {
-    if err == nil {
-        return ""
-    }
-    validationErrors, ok := err.(validator.ValidationErrors)
-    if !ok {
-        return err.Error()
-    }
-    
-    // 翻译每个错误
-    var errMessages []string
-    for _, e := range validationErrors {
-        errMessages = append(errMessages, e.Translate(translator))
-    }
-    
-    return strings.Join(errMessages, ", ")
-}
-```
-
-6. 使用翻译功能的示例：
-
-```go
-func (l *StatusLogic) Status(req *types.StatusReq) (resp *types.StatusResp, err error) {
-    // 验证请求参数
+func (h *StatusHandler) Status(ctx *svc.ServiceContext, req *types.StatusReq) (resp *types.CommonResp, err error) {
+    // 验证请求
     if err := req.Validate(); err != nil {
-        // 翻译错误信息为中文
-        return nil, errors.New(types.TranslateError(err))
+        return &types.CommonResp{
+            Code:    400,
+            Message: err.Error(),
+        }, nil
     }
     
-    // 业务逻辑处理
+    // 处理业务逻辑...
     // ...
-    
-    return &types.StatusResp{
-        Message: "success",
-    }, nil
 }
 ``` 
