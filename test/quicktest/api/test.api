@@ -1,0 +1,25 @@
+syntax = "v1"
+
+info (
+	title:   "Quick Test API"
+	desc:    "测试验证插件"
+	author:  "coke"
+	version: "1.0"
+)
+
+type (
+	LoginReq {
+		Username string `json:"username" validate:"required"`
+		Password string `json:"password" validate:"required,min=6"`
+		Mobile   string `json:"mobile" validate:"mobile"`
+	}
+	LoginResp {
+		Token string `json:"token"`
+	}
+)
+
+service quicktest-api {
+	@handler Login
+	post /login (LoginReq) returns (LoginResp)
+}
+

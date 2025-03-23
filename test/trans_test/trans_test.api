@@ -1,0 +1,28 @@
+syntax = "v1"
+
+info (
+	title:   "翻译功能测试"
+	desc:    "用于测试验证错误信息翻译功能"
+	author:  "测试人员"
+	version: "v1.0.0"
+)
+
+type TestTranslationReq {
+	Name   string `json:"name" validate:"required,min=2,max=10"`
+	Age    int    `json:"age" validate:"required,gt=0,lt=150"`
+	Email  string `json:"email" validate:"required,email"`
+	Mobile string `json:"mobile" validate:"required,mobile"`
+}
+
+type TestTranslationResp {
+	Message string `json:"message"`
+}
+
+service test {
+	@doc (
+		summary: "测试翻译功能"
+	)
+	@handler TestTranslation
+	post /api/test (TestTranslationReq) returns (TestTranslationResp)
+}
+

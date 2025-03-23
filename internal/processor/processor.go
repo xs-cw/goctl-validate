@@ -20,12 +20,116 @@ type Options struct {
 	EnableCustomValidation bool
 	// 是否启用调试模式
 	DebugMode bool
+	// 是否启用验证标签翻译
+	EnableTranslation bool
+	// 翻译语言，默认为中文
+	TranslationLanguage string
 }
 
 // 验证器常量
 const (
 	ValidateImport = `"github.com/go-playground/validator/v10"`
 	ValidateVar    = `var validate = validator.New()`
+
+	// 翻译相关导入
+	TranslationZhImport             = `"github.com/go-playground/locales/zh"`
+	TranslationZhTwImport           = `"github.com/go-playground/locales/zh_Hant_TW"`
+	TranslationEnImport             = `"github.com/go-playground/locales/en"`
+	UniversalTranslatorImport       = `ut "github.com/go-playground/universal-translator"`
+	ValidatorTranslationsImport     = `zhTranslations "github.com/go-playground/validator/v10/translations/zh"`
+	ValidatorTranslationsZhTwImport = `zhTwTranslations "github.com/go-playground/validator/v10/translations/zh_tw"`
+	ValidatorTranslationsEnImport   = `enTranslations "github.com/go-playground/validator/v10/translations/en"`
+
+	// 翻译器变量
+	TranslationVars = `// 全局翻译器
+var (
+	translator ut.Translator
+	uni *ut.UniversalTranslator
+)
+`
+
+	// 中文翻译初始化
+	ZhTranslationInit = `
+	// 中文翻译器初始化
+	zh := zh.New()
+	uni = ut.New(zh, zh)
+	translator, _ = uni.GetTranslator("zh")
+	// 注册翻译器
+	_ = zhTranslations.RegisterDefaultTranslations(validate, translator)
+	
+	// 注册自定义验证器的翻译，函数位于 translations.go
+	registerCustomValidationTranslations(translator)
+`
+
+	// 繁体中文翻译初始化
+	ZhTwTranslationInit = `
+	// 繁体中文翻译器初始化
+	zhTw := zh_Hant_TW.New()
+	uni = ut.New(zhTw, zhTw)
+	translator, _ = uni.GetTranslator("zh_Hant_TW")
+	// 注册翻译器
+	_ = zhTwTranslations.RegisterDefaultTranslations(validate, translator)
+	
+	// 注册自定义验证器的翻译，函数位于 translations.go
+	registerCustomValidationTranslations(translator)
+`
+
+	// 英文翻译初始化
+	EnTranslationInit = `
+	// 英文翻译器初始化
+	en := en.New()
+	uni = ut.New(en, en)
+	translator, _ = uni.GetTranslator("en")
+	// 注册翻译器
+	_ = enTranslations.RegisterDefaultTranslations(validate, translator)
+	
+	// 注册自定义验证器的翻译，函数位于 translations.go
+	registerCustomValidationTranslations(translator)
+`
+
+	// 翻译函数
+	TranslateErrorFunc = `
+// TranslateError 翻译验证错误信息
+func TranslateError(err error) string {
+	if err == nil {
+		return ""
+	}
+	validationErrors, ok := err.(validator.ValidationErrors)
+	if !ok {
+		return err.Error()
+	}
+	
+	// 翻译每个错误
+	var errMessages []string
+	for _, e := range validationErrors {
+		errMessages = append(errMessages, e.Translate(translator))
+	}
+	
+	return strings.Join(errMessages, ", ")
+}
+`
+
+	// 自定义翻译注册函数 - 将被移到单独的translations.go文件中
+	CustomTranslationsFunc = `// 注册自定义验证器的翻译
+func registerCustomValidationTranslations(trans ut.Translator) {
+	// 注册 mobile 验证器的翻译
+	_ = trans.Add("mobile", "{0}必须是有效的手机号码", true)
+	_ = validate.RegisterTranslation("mobile", trans, func(ut ut.Translator) error {
+		return nil
+	}, func(ut ut.Translator, fe validator.FieldError) string {
+		t, _ := ut.T("mobile", fe.Field())
+		return t
+	})
+	
+	// 注册 idcard 验证器的翻译
+	_ = trans.Add("idcard", "{0}必须是有效的身份证号码", true)
+	_ = validate.RegisterTranslation("idcard", trans, func(ut ut.Translator) error {
+		return nil
+	}, func(ut ut.Translator, fe validator.FieldError) string {
+		t, _ := ut.T("idcard", fe.Field())
+		return t
+	})
+}`
 
 	// 验证方法映射注释和开始部分
 	ValidationRegisterComment = `// registerValidation 存储所有的验证方法
@@ -223,6 +327,13 @@ func ProcessTypesFile(filePath string, options Options) error {
 	// 获取包名
 	packageName := f.Name.Name
 
+	// 如果启用了翻译功能，生成translations.go文件
+	if options.EnableTranslation {
+		if err := generateTranslationsFile(dirPath, packageName, options); err != nil {
+			return err
+		}
+	}
+
 	// 生成验证文件内容
 	var validationFileContent strings.Builder
 
@@ -233,8 +344,42 @@ func ProcessTypesFile(filePath string, options Options) error {
 		// 添加导入
 		validationFileContent.WriteString("import (\n")
 		validationFileContent.WriteString("\t\"regexp\"\n")
+		validationFileContent.WriteString("\t\"strings\"\n")
 		validationFileContent.WriteString("\t" + ValidateImport + "\n")
+
+		// 如果启用了翻译
+		if options.EnableTranslation {
+			// 根据选择的语言添加相应的导入
+			switch options.TranslationLanguage {
+			case "zh":
+				validationFileContent.WriteString("\t" + TranslationZhImport + "\n")
+				validationFileContent.WriteString("\t" + UniversalTranslatorImport + "\n")
+				validationFileContent.WriteString("\t" + ValidatorTranslationsImport + "\n")
+			case "zh_tw":
+				validationFileContent.WriteString("\t" + TranslationZhTwImport + "\n")
+				validationFileContent.WriteString("\t" + UniversalTranslatorImport + "\n")
+				validationFileContent.WriteString("\t" + ValidatorTranslationsZhTwImport + "\n")
+			case "en":
+				validationFileContent.WriteString("\t" + TranslationEnImport + "\n")
+				validationFileContent.WriteString("\t" + UniversalTranslatorImport + "\n")
+				validationFileContent.WriteString("\t" + ValidatorTranslationsEnImport + "\n")
+			default:
+				// 默认使用中文
+				validationFileContent.WriteString("\t" + TranslationZhImport + "\n")
+				validationFileContent.WriteString("\t" + UniversalTranslatorImport + "\n")
+				validationFileContent.WriteString("\t" + ValidatorTranslationsImport + "\n")
+			}
+		}
+
 		validationFileContent.WriteString(")\n\n")
+
+		// 添加验证器变量
+		validationFileContent.WriteString(ValidateVar + "\n\n")
+
+		// 如果启用了翻译，添加翻译器变量
+		if options.EnableTranslation {
+			validationFileContent.WriteString(TranslationVars + "\n")
+		}
 
 		// 添加验证方法映射注释
 		validationFileContent.WriteString(ValidationRegisterComment + "\n")
@@ -259,8 +404,26 @@ func ProcessTypesFile(filePath string, options Options) error {
 		// 结束map定义
 		validationFileContent.WriteString("}\n")
 
-		// 添加init函数
-		validationFileContent.WriteString(ValidateInitFunc + "\n")
+		// 添加init函数，并在其中初始化翻译器
+		validationFileContent.WriteString("\n// 初始化并注册所有验证方法\nfunc init() {\n")
+		validationFileContent.WriteString("\t// 遍历注册所有验证方法\n\tfor tag, handler := range registerValidation {\n\t\t_ = validate.RegisterValidation(tag, handler)\n\t}\n")
+
+		// 如果启用了翻译，添加翻译器初始化代码
+		if options.EnableTranslation {
+			switch options.TranslationLanguage {
+			case "zh":
+				validationFileContent.WriteString(ZhTranslationInit)
+			case "zh_tw":
+				validationFileContent.WriteString(ZhTwTranslationInit)
+			case "en":
+				validationFileContent.WriteString(EnTranslationInit)
+			default:
+				// 默认使用中文
+				validationFileContent.WriteString(ZhTranslationInit)
+			}
+		}
+
+		validationFileContent.WriteString("}\n\n")
 
 		// 添加内置验证函数
 		validationFileContent.WriteString(BuiltInValidationFunc + "\n")
@@ -274,9 +437,196 @@ func ProcessTypesFile(filePath string, options Options) error {
 				}
 			}
 		}
+
+		// 如果启用了翻译，添加翻译错误信息的函数
+		if options.EnableTranslation {
+			validationFileContent.WriteString(TranslateErrorFunc)
+		}
 	} else {
 		// 文件已存在，需要更新
-		// 1. 提取现有的验证函数和注册
+		// 1. 检查是否已经包含翻译相关代码
+		hasTranslation := strings.Contains(validationContent, "ut.Translator") &&
+			(strings.Contains(validationContent, "zh.New()") ||
+				strings.Contains(validationContent, "zh_Hant_TW.New()") ||
+				strings.Contains(validationContent, "en.New()"))
+
+		// 如果启用了翻译，但文件中没有翻译相关代码，需要添加
+		if options.EnableTranslation && !hasTranslation {
+			// 将更新后的内容重新生成，而不是修改现有内容
+			// 重新读取并解析文件以获取包名
+			fset := token.NewFileSet()
+			parsedFile, err := parser.ParseFile(fset, validationFilePath, nil, parser.PackageClauseOnly)
+			if err != nil {
+				return fmt.Errorf("解析验证文件失败: %w", err)
+			}
+
+			packageName := parsedFile.Name.Name
+
+			// 生成一个全新的文件内容
+			var newValidationContent strings.Builder
+
+			// 添加包声明
+			newValidationContent.WriteString(fmt.Sprintf("package %s\n\n", packageName))
+
+			// 添加导入
+			newValidationContent.WriteString("import (\n")
+
+			// 确保包含必要的导入
+			if !strings.Contains(validationContent, "\"regexp\"") {
+				newValidationContent.WriteString("\t\"regexp\"\n")
+			} else {
+				newValidationContent.WriteString("\t\"regexp\"\n")
+			}
+
+			if !strings.Contains(validationContent, "\"strings\"") {
+				newValidationContent.WriteString("\t\"strings\"\n")
+			} else {
+				newValidationContent.WriteString("\t\"strings\"\n")
+			}
+
+			if !strings.Contains(validationContent, ValidateImport) {
+				newValidationContent.WriteString("\t" + ValidateImport + "\n")
+			} else {
+				newValidationContent.WriteString("\t" + ValidateImport + "\n")
+			}
+
+			// 添加翻译相关导入
+			switch options.TranslationLanguage {
+			case "zh":
+				newValidationContent.WriteString("\t" + TranslationZhImport + "\n")
+				newValidationContent.WriteString("\t" + UniversalTranslatorImport + "\n")
+				newValidationContent.WriteString("\t" + ValidatorTranslationsImport + "\n")
+			case "zh_tw":
+				newValidationContent.WriteString("\t" + TranslationZhTwImport + "\n")
+				newValidationContent.WriteString("\t" + UniversalTranslatorImport + "\n")
+				newValidationContent.WriteString("\t" + ValidatorTranslationsZhTwImport + "\n")
+			case "en":
+				newValidationContent.WriteString("\t" + TranslationEnImport + "\n")
+				newValidationContent.WriteString("\t" + UniversalTranslatorImport + "\n")
+				newValidationContent.WriteString("\t" + ValidatorTranslationsEnImport + "\n")
+			default:
+				newValidationContent.WriteString("\t" + TranslationZhImport + "\n")
+				newValidationContent.WriteString("\t" + UniversalTranslatorImport + "\n")
+				newValidationContent.WriteString("\t" + ValidatorTranslationsImport + "\n")
+			}
+
+			newValidationContent.WriteString(")\n\n")
+
+			// 添加验证器变量
+			if !strings.Contains(validationContent, ValidateVar) {
+				newValidationContent.WriteString(ValidateVar + "\n\n")
+			} else {
+				newValidationContent.WriteString(ValidateVar + "\n\n")
+			}
+
+			// 添加翻译器变量
+			newValidationContent.WriteString(TranslationVars + "\n")
+
+			// 分析现有的验证方法映射和验证函数
+			// 使用正则表达式匹配现有的registerValidation声明
+			registerMapRegex := regexp.MustCompile(`(?s)var registerValidation = map\[string\]validator\.Func\{.*?\}`)
+			registerMapMatch := registerMapRegex.FindString(validationContent)
+
+			if registerMapMatch != "" {
+				// 提取现有注册的标签
+				tagRegex := regexp.MustCompile(`"(\w+)":\s*validate\w+`)
+				tagMatches := tagRegex.FindAllStringSubmatch(registerMapMatch, -1)
+
+				// 将现有标签添加到customTags中，确保它们不会被删除
+				for _, match := range tagMatches {
+					if len(match) > 1 && match[1] != "mobile" && match[1] != "idcard" {
+						customTags[match[1]] = true
+					}
+				}
+
+				newValidationContent.WriteString(registerMapMatch + "\n\n")
+			} else {
+				// 如果没有找到，添加默认的映射
+				newValidationContent.WriteString(ValidationRegisterComment + "\n")
+				newValidationContent.WriteString(ValidateRegisterMap)
+
+				// 收集并排序自定义标签
+				var localSortedTags []string
+				for tag := range customTags {
+					localSortedTags = append(localSortedTags, tag)
+				}
+				sort.Strings(localSortedTags)
+
+				// 添加自定义验证标签
+				for _, tag := range localSortedTags {
+					newValidationContent.WriteString(fmt.Sprintf(CustomValidationMapTemplate, tag, strings.Title(tag), tag))
+				}
+
+				newValidationContent.WriteString("}\n\n")
+			}
+
+			// 添加init函数，包含翻译器初始化
+			// 检查是否存在init函数
+			initFuncRegex := regexp.MustCompile(`(?s)func init\(\) \{.*?\}`)
+			initFuncMatch := initFuncRegex.FindString(validationContent)
+
+			if initFuncMatch != "" {
+				// 在init函数中添加翻译器初始化
+				initFuncMatch = strings.TrimSuffix(initFuncMatch, "}")
+				newValidationContent.WriteString(initFuncMatch + "\n")
+
+				// 根据选择的语言添加相应的初始化代码
+				switch options.TranslationLanguage {
+				case "zh":
+					newValidationContent.WriteString(ZhTranslationInit)
+				case "zh_tw":
+					newValidationContent.WriteString(ZhTwTranslationInit)
+				case "en":
+					newValidationContent.WriteString(EnTranslationInit)
+				default:
+					newValidationContent.WriteString(ZhTranslationInit)
+				}
+
+				newValidationContent.WriteString("}\n\n")
+			} else {
+				// 添加新的init函数
+				newValidationContent.WriteString("\n// 初始化并注册所有验证方法\nfunc init() {\n")
+				newValidationContent.WriteString("\t// 遍历注册所有验证方法\n\tfor tag, handler := range registerValidation {\n\t\t_ = validate.RegisterValidation(tag, handler)\n\t}\n")
+
+				// 添加翻译器初始化
+				switch options.TranslationLanguage {
+				case "zh":
+					newValidationContent.WriteString(ZhTranslationInit)
+				case "zh_tw":
+					newValidationContent.WriteString(ZhTwTranslationInit)
+				case "en":
+					newValidationContent.WriteString(EnTranslationInit)
+				default:
+					newValidationContent.WriteString(ZhTranslationInit)
+				}
+
+				newValidationContent.WriteString("}\n\n")
+			}
+
+			// 提取并添加所有验证函数
+			funcRegex := regexp.MustCompile(`(?s)func validate\w+\(fl validator\.FieldLevel\) bool \{.*?\}`)
+			funcMatches := funcRegex.FindAllString(validationContent, -1)
+
+			for _, funcMatch := range funcMatches {
+				newValidationContent.WriteString(funcMatch + "\n\n")
+			}
+
+			// 添加内置验证函数（如果不存在）
+			if !strings.Contains(validationContent, "func validateMobile") {
+				newValidationContent.WriteString(BuiltInValidationFunc + "\n")
+			}
+
+			// 添加翻译错误信息的函数
+			newValidationContent.WriteString(TranslateErrorFunc)
+
+			// 更新文件内容
+			validationContent = newValidationContent.String()
+		} else if !options.EnableTranslation && hasTranslation {
+			// 如果禁用了翻译，但文件中有翻译相关代码，暂时保留不变
+			// 这里不对翻译代码进行移除，以避免破坏用户的自定义修改
+		}
+
+		// 2. 提取现有的验证函数和注册
 		existingFuncs := make(map[string]bool)
 		existingRegs := make(map[string]bool)
 		existingRegLines := make(map[string]string) // 存储原始的注册行，用于保持注释一致性
@@ -320,15 +670,27 @@ func ProcessTypesFile(filePath string, options Options) error {
 
 		// 收集所有自定义标签
 		for tag := range customTags {
-			if tag != "mobile" && tag != "idcard" {
+			if tag != "mobile" && tag != "idcard" && !existingRegs[tag] {
 				allTags = append(allTags, tag)
 			}
 		}
 
-		// 收集现有但不在customTags中的标签
+		// 收集现有的标签 - 保留所有现有标签，确保不删除任何标签
 		for tag := range existingRegs {
-			if tag != "mobile" && tag != "idcard" && !customTags[tag] {
-				allTags = append(allTags, tag)
+			if tag != "mobile" && tag != "idcard" {
+				// 检查是否已经在allTags中
+				exists := false
+				for _, existingTag := range allTags {
+					if existingTag == tag {
+						exists = true
+						break
+					}
+				}
+
+				// 如果不存在，添加到列表中
+				if !exists {
+					allTags = append(allTags, tag)
+				}
 			}
 		}
 
@@ -514,10 +876,7 @@ func ProcessTypesFile(filePath string, options Options) error {
 			}
 		}
 
-		// 添加验证器变量的声明
-		validateVarStatement := "\n\n" + ValidateVar
-		fileContentStr = string(fileContent) + validateVarStatement
-		fileContent = []byte(fileContentStr)
+		// 不在types.go中添加验证器变量的声明，因为validation.go中已经有了
 	}
 
 	for _, structName := range reqStructs {
@@ -529,28 +888,77 @@ func ProcessTypesFile(filePath string, options Options) error {
 
 	// 将方法添加到types.go文件末尾
 	if methodsBuilder.Len() > 0 {
-		modifiedContent := string(fileContent) + methodsBuilder.String()
+		// 检查文件中是否已经包含validate变量的声明
+		if !strings.Contains(string(fileContent), "var validate = validator.New()") {
+			// 添加validate变量声明
+			// 找到import语句结束的位置
+			importEndPos := strings.Index(string(fileContent), ")")
+			if importEndPos > 0 {
+				// 在import语句后添加validate变量声明
+				importEndPos = importEndPos + 1
+				modifiedContent := string(fileContent[:importEndPos]) + "\n\nvar validate = validator.New()" + string(fileContent[importEndPos:]) + methodsBuilder.String()
 
-		// 格式化代码
-		formatted, err := format.Source([]byte(modifiedContent))
-		if err != nil {
-			return fmt.Errorf("格式化代码失败: %w", err)
-		}
+				// 格式化代码
+				formatted, err := format.Source([]byte(modifiedContent))
+				if err != nil {
+					return fmt.Errorf("格式化代码失败: %w", err)
+				}
 
-		// 写回文件
-		if err := os.WriteFile(filePath, formatted, 0644); err != nil {
-			return fmt.Errorf("写入文件失败: %w", err)
-		}
+				// 写回文件
+				if err := os.WriteFile(filePath, formatted, 0644); err != nil {
+					return fmt.Errorf("写入文件失败: %w", err)
+				}
 
-		if options.DebugMode {
-			fmt.Printf("成功添加验证方法到 %s\n", filePath)
+				if options.DebugMode {
+					fmt.Printf("成功添加验证方法和validate变量到 %s\n", filePath)
+				}
+			} else {
+				// 找不到import语句，直接添加在文件末尾
+				modifiedContent := string(fileContent) + "\n\nvar validate = validator.New()" + methodsBuilder.String()
+
+				// 格式化代码
+				formatted, err := format.Source([]byte(modifiedContent))
+				if err != nil {
+					return fmt.Errorf("格式化代码失败: %w", err)
+				}
+
+				// 写回文件
+				if err := os.WriteFile(filePath, formatted, 0644); err != nil {
+					return fmt.Errorf("写入文件失败: %w", err)
+				}
+
+				if options.DebugMode {
+					fmt.Printf("成功添加验证方法和validate变量到 %s\n", filePath)
+				}
+			}
+		} else {
+			// 已存在validate变量，只添加验证方法
+			modifiedContent := string(fileContent) + methodsBuilder.String()
+
+			// 格式化代码
+			formatted, err := format.Source([]byte(modifiedContent))
+			if err != nil {
+				return fmt.Errorf("格式化代码失败: %w", err)
+			}
+
+			// 写回文件
+			if err := os.WriteFile(filePath, formatted, 0644); err != nil {
+				return fmt.Errorf("写入文件失败: %w", err)
+			}
+
+			if options.DebugMode {
+				fmt.Printf("成功添加验证方法到 %s\n", filePath)
+			}
 		}
 	}
 
 	// 如果需要创建或更新验证文件
 	if !validationExists {
+		// 修改生成的验证文件内容，不包含validate变量声明
+		validationContent := strings.Replace(validationFileContent.String(), ValidateVar+"\n\n", "", 1)
+
 		// 格式化验证文件内容
-		formatted, err := format.Source([]byte(validationFileContent.String()))
+		formatted, err := format.Source([]byte(validationContent))
 		if err != nil {
 			return fmt.Errorf("格式化验证文件代码失败: %w", err)
 		}
@@ -562,6 +970,23 @@ func ProcessTypesFile(filePath string, options Options) error {
 
 		if options.DebugMode {
 			fmt.Printf("成功创建验证文件: %s\n", validationFilePath)
+		}
+	} else {
+		// 如果验证文件已存在，确保移除var validate = validator.New()
+		validateVarPattern := `var validate = validator\.New\(\)\n*`
+		validateVarRegex := regexp.MustCompile(validateVarPattern)
+		updatedValidationContent := validateVarRegex.ReplaceAllString(validationContent, "")
+
+		// 格式化并写入文件
+		formatted, err := format.Source([]byte(updatedValidationContent))
+		if err == nil {
+			if err := os.WriteFile(validationFilePath, formatted, 0644); err != nil {
+				return fmt.Errorf("写入更新的验证文件失败: %w", err)
+			}
+
+			if options.DebugMode {
+				fmt.Printf("成功更新验证文件: %s\n", validationFilePath)
+			}
 		}
 	}
 
@@ -620,4 +1045,45 @@ func findPackagePosition(content string) int {
 		return -1
 	}
 	return loc[0]
+}
+
+// 这是新添加的函数，用于生成translations.go文件
+func generateTranslationsFile(dirPath, packageName string, options Options) error {
+	// 翻译文件的路径（与types.go在同一目录）
+	translationsFilePath := filepath.Join(dirPath, "translations.go")
+
+	// 检查translations.go文件是否已存在
+	if _, err := os.Stat(translationsFilePath); err == nil {
+		// 文件已存在，跳过生成
+		return nil
+	}
+
+	// 创建translations.go文件内容
+	var translationsFileContent strings.Builder
+
+	// 添加包声明和导入
+	translationsFileContent.WriteString(fmt.Sprintf("package %s\n\n", packageName))
+	translationsFileContent.WriteString("import (\n")
+	translationsFileContent.WriteString("\t" + ValidateImport + "\n")
+	translationsFileContent.WriteString("\t" + UniversalTranslatorImport + "\n")
+	translationsFileContent.WriteString(")\n\n")
+
+	// 添加自定义翻译注册函数
+	translationsFileContent.WriteString(CustomTranslationsFunc)
+
+	// 格式化和写入文件
+	formatted, err := format.Source([]byte(translationsFileContent.String()))
+	if err != nil {
+		return fmt.Errorf("格式化翻译文件代码失败: %w", err)
+	}
+
+	if err := os.WriteFile(translationsFilePath, formatted, 0644); err != nil {
+		return fmt.Errorf("写入翻译文件失败: %w", err)
+	}
+
+	if options.DebugMode {
+		fmt.Printf("成功创建翻译文件: %s\n", translationsFilePath)
+	}
+
+	return nil
 }
