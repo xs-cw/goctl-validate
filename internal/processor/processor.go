@@ -427,8 +427,12 @@ func ProcessTypesFile(filePath string, options Options) error {
 
 		// 如果启用了自定义验证，添加自定义验证标签
 		if options.EnableCustomValidation && len(customTags) > 0 {
-			for _, tag := range sortedTags {
-				validationFileContent.WriteString(fmt.Sprintf(CustomValidationMapTemplate, tag, strings.Title(tag), tag))
+			for i, tag := range sortedTags {
+				comma := ","
+				if i == len(sortedTags)-1 {
+					comma = ""
+				}
+				validationFileContent.WriteString(fmt.Sprintf("\t\"%s\": validate%s%s\n", tag, strings.Title(tag), comma))
 			}
 		}
 
@@ -604,10 +608,23 @@ func ProcessTypesFile(filePath string, options Options) error {
 				newMapContent.WriteString("\t\"idcard\": validateIdCard,\n")
 
 				// 添加所有自定义验证
+				var tags []string
 				for tag := range customTags {
 					if tag != "mobile" && tag != "idcard" {
-						newMapContent.WriteString(fmt.Sprintf("\t\"%s\": validate%s,\n", tag, strings.Title(tag)))
+						tags = append(tags, tag)
 					}
+				}
+
+				// 按字母排序，保证输出稳定
+				sort.Strings(tags)
+
+				// 添加自定义标签
+				for i, tag := range tags {
+					comma := ","
+					if i == len(tags)-1 {
+						comma = ""
+					}
+					newMapContent.WriteString(fmt.Sprintf("\t\"%s\": validate%s%s\n", tag, strings.Title(tag), comma))
 				}
 
 				newMapContent.WriteString("}")
