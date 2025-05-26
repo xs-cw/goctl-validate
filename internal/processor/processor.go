@@ -9,9 +9,13 @@ import (
 	"go/token"
 	"os"
 	"path/filepath"
+	"reflect"
 	"regexp"
 	"sort"
 	"strings"
+
+	"github.com/zeromicro/go-zero/tools/goctl/api/spec"
+	"github.com/zeromicro/go-zero/tools/goctl/plugin"
 )
 
 // Options 定义处理器的选项
@@ -101,14 +105,66 @@ func validateIdCard(fl validator.FieldLevel) bool {
 `
 )
 
+// ProcessTypesAPI 根据api文件直接处理
+func ProcessTypesAPI(p *plugin.Plugin, options Options) error {
+	// 寻找所有的请求结构体并生成验证方法
+	validateStructs := make([]spec.DefineStruct, 0)
+	// 收集所有请求结构体和自定义验证标签
+	for _, decl := range p.Api.Types {
+		switch st := decl.(type) {
+		case spec.DefineStruct:
+			for _, field := range st.Members {
+				validateTag := extractValidateTag(field.Tag)
+				if validateTag != "" {
+					validateStructs = append(validateStructs, st)
+					break
+				}
+			}
+		case spec.NestedStruct:
+			fmt.Println("NestedStruct", st.Name())
+		case spec.PrimitiveType:
+			fmt.Println("PrimitiveType", st.Name())
+		default:
+			fmt.Println(reflect.TypeOf(decl), decl.Name())
+		}
+	}
+
+	validationFileContent := strings.Builder{}
+	validationFileContent.WriteString("package types \n\n")
+	validationFileContent.WriteString("import (\n\t\"github.com/go-playground/validator/v10\"\n)\n\n")
+	validationFileContent.WriteString("var validate = validator.New()\n\n")
+	for _, v := range validateStructs {
+		// 将结构体注册为检验方法
+		validationFileContent.WriteString(fmt.Sprintf("func (v *%s) Validate() error {\n", v.Name()))
+		validationFileContent.WriteString("return validate.Struct(v)\n")
+		validationFileContent.WriteString("}\n")
+	}
+	// 格式化验证文件内容
+	formatted, err := format.Source([]byte(validationFileContent.String()))
+	if err != nil {
+		return fmt.Errorf("格式化验证文件代码失败: %w", err)
+	}
+	filePath := p.Dir + "/internal/types/validation.go"
+	// 写入验证文件
+	if err := os.WriteFile(filePath, formatted, 0644); err != nil {
+		return fmt.Errorf("写入验证文件失败: %w", err)
+	}
+
+	if options.DebugMode {
+		fmt.Printf("成功创建验证文件: %s\n", filePath)
+	}
+
+	return nil
+}
+
 // ProcessTypesFile 处理types.go文件，添加验证逻辑
-func ProcessTypesFile(filePath string, options Options) error {
+func ProcessTypesFile(genFlag bool, filePath string, options Options) (bool, error) {
 	// 读取文件内容
 	fileContent, err := os.ReadFile(filePath)
 	if err != nil {
-		return fmt.Errorf("读取文件失败: %w", err)
+		return false, fmt.Errorf("读取文件失败: %w", err)
 	}
-
+	genDefineValidate := false
 	if options.DebugMode {
 		fmt.Println("============= 原始文件内容 =============")
 		fmt.Println(string(fileContent))
@@ -118,7 +174,7 @@ func ProcessTypesFile(filePath string, options Options) error {
 	fset := token.NewFileSet()
 	f, err := parser.ParseFile(fset, filePath, fileContent, parser.ParseComments)
 	if err != nil {
-		return fmt.Errorf("解析文件失败: %w", err)
+		return false, fmt.Errorf("解析文件失败: %w", err)
 	}
 
 	// 寻找所有的请求结构体并生成验证方法
@@ -213,7 +269,7 @@ func ProcessTypesFile(filePath string, options Options) error {
 
 	// 没有找到请求结构体，直接返回
 	if len(reqStructs) == 0 && len(customTags) == 0 {
-		return nil
+		return false, nil
 	}
 
 	// 获取文件所在的目录路径
@@ -236,7 +292,7 @@ func ProcessTypesFile(filePath string, options Options) error {
 		// 验证文件已存在，读取内容
 		validationBytes, err := os.ReadFile(validationFilePath)
 		if err != nil {
-			return fmt.Errorf("读取现有验证文件失败: %w", err)
+			return false, fmt.Errorf("读取现有验证文件失败: %w", err)
 		}
 		validationContent = string(validationBytes)
 		validationExists = true
@@ -501,11 +557,11 @@ func ProcessTypesFile(filePath string, options Options) error {
 		// 6. 格式化并写入文件
 		formatted, err := format.Source([]byte(newValidationContent))
 		if err != nil {
-			return fmt.Errorf("格式化更新的验证文件代码失败: %w", err)
+			return false, fmt.Errorf("格式化更新的验证文件代码失败: %w", err)
 		}
 
 		if err := os.WriteFile(validationFilePath, formatted, 0644); err != nil {
-			return fmt.Errorf("写入更新的验证文件失败: %w", err)
+			return false, fmt.Errorf("写入更新的验证文件失败: %w", err)
 		}
 
 		if options.DebugMode {
@@ -616,11 +672,11 @@ func ProcessTypesFile(filePath string, options Options) error {
 			// 格式化并写入翻译器文件
 			formatted, err := format.Source([]byte(translatorFileContent.String()))
 			if err != nil {
-				return fmt.Errorf("格式化翻译器文件代码失败: %w", err)
+				return false, fmt.Errorf("格式化翻译器文件代码失败: %w", err)
 			}
 
 			if err := os.WriteFile(translatorFilePath, formatted, 0644); err != nil {
-				return fmt.Errorf("写入翻译器文件失败: %w", err)
+				return false, fmt.Errorf("写入翻译器文件失败: %w", err)
 			}
 
 			if options.DebugMode {
@@ -631,7 +687,7 @@ func ProcessTypesFile(filePath string, options Options) error {
 			// 读取现有的翻译器文件
 			translatorBytes, err := os.ReadFile(translatorFilePath)
 			if err != nil {
-				return fmt.Errorf("读取现有翻译器文件失败: %w", err)
+				return false, fmt.Errorf("读取现有翻译器文件失败: %w", err)
 			}
 
 			translatorContent := string(translatorBytes)
@@ -688,7 +744,7 @@ func ProcessTypesFile(filePath string, options Options) error {
 				funcStartMatch := funcStartRegex.FindStringIndex(translatorContent)
 
 				if funcStartMatch == nil {
-					return fmt.Errorf("无法找到registerCustomTranslations函数")
+					return false, fmt.Errorf("无法找到registerCustomTranslations函数")
 				}
 
 				// 找到函数的开始位置
@@ -711,7 +767,7 @@ func ProcessTypesFile(filePath string, options Options) error {
 				}
 
 				if funcEnd == -1 {
-					return fmt.Errorf("无法找到registerCustomTranslations函数的结束位置")
+					return false, fmt.Errorf("无法找到registerCustomTranslations函数的结束位置")
 				}
 
 				// 在函数结束位置的大括号前添加新翻译
@@ -732,13 +788,13 @@ func ProcessTypesFile(filePath string, options Options) error {
 					// 寻找最后一个翻译注册的位置
 					lastRegisterPos := strings.LastIndex(translatorContent, "RegisterTranslation(")
 					if lastRegisterPos == -1 {
-						return fmt.Errorf("无法找到适合添加翻译的位置")
+						return false, fmt.Errorf("无法找到适合添加翻译的位置")
 					}
 
 					// 找到此注册的结束位置（下一个}）
 					endRegisterPos := strings.Index(translatorContent[lastRegisterPos:], "})") + lastRegisterPos
 					if endRegisterPos == -1 {
-						return fmt.Errorf("无法找到适合添加翻译的位置")
+						return false, fmt.Errorf("无法找到适合添加翻译的位置")
 					}
 
 					// 在此位置后添加新翻译
@@ -747,13 +803,13 @@ func ProcessTypesFile(filePath string, options Options) error {
 
 					formatted, err = format.Source([]byte(modifiedContent))
 					if err != nil {
-						return fmt.Errorf("格式化翻译器代码失败: %w", err)
+						return false, fmt.Errorf("格式化翻译器代码失败: %w", err)
 					}
 				}
 
 				// 写入更新后的文件
 				if err := os.WriteFile(translatorFilePath, formatted, 0644); err != nil {
-					return fmt.Errorf("写入更新的翻译器文件失败: %w", err)
+					return false, fmt.Errorf("写入更新的翻译器文件失败: %w", err)
 				}
 
 				if options.DebugMode {
@@ -791,7 +847,25 @@ func ProcessTypesFile(filePath string, options Options) error {
 				// 实现比较复杂，这里简单处理为在末尾添加
 			} else {
 				// 在包声明之后添加导入
-				importStatement := "\n\nimport (\n\t" + ValidateImport + "\n)"
+				importStatement := `
+import (
+    "fmt"
+
+	"github.com/go-playground/validator/v10"
+)
+`
+				if !genFlag {
+					importStatement = `
+import (
+    "fmt"
+
+	"github.com/go-playground/validator/v10"
+	"github.com/go-playground/locales/zh"
+	ut "github.com/go-playground/universal-translator"
+	zhTranslations "github.com/go-playground/validator/v10/translations/zh"
+)
+`
+				}
 
 				// 插入导入语句
 				if options.DebugMode {
@@ -802,11 +876,24 @@ func ProcessTypesFile(filePath string, options Options) error {
 				fileContentStr = fileContentStr[:packageEndPos] + importStatement + fileContentStr[packageEndPos:]
 				fileContent = []byte(fileContentStr)
 			}
+
 		}
 
 		// 添加验证器变量的声明
-		validateVarStatement := "\n\n" + ValidateVar
-		fileContentStr = string(fileContent) + validateVarStatement
+		// 如果之前已经生成过定义变量，则跳过
+		if !genFlag {
+			validateVarStatement := fmt.Sprintf(`
+    var zhTrans =  zh.New()
+	var trans, _ = ut.New(zhTrans, zhTrans).GetTranslator("zh")
+	%s
+	// 注册中文翻译
+func init(){
+    zhTranslations.RegisterDefaultTranslations(validate, trans)
+}
+`, ValidateVar)
+			fileContentStr = string(fileContent) + validateVarStatement
+			genDefineValidate = true
+		}
 		fileContent = []byte(fileContentStr)
 	}
 
@@ -819,7 +906,21 @@ func ProcessTypesFile(filePath string, options Options) error {
 			//	methodsBuilder.WriteString(fmt.Sprintf("\nfunc (r *%s) Validate() error {\n\terr := validate.Struct(r)\n\treturn TranslateError(err)\n}\n", structName))
 			//} else {
 			// 使用普通版本的验证方法
-			methodsBuilder.WriteString(fmt.Sprintf("\nfunc (r *%s) Validate() error {\n\treturn validate.Struct(r)\n}\n", structName))
+			methodsBuilder.WriteString(fmt.Sprintf(`
+func (req *%s) Validate() error {
+    err := validate.Struct(req)
+	if err != nil {
+		es, ok := err.(validator.ValidationErrors)
+		if !ok {
+			return err
+		}
+		for _, err := range es {
+			return fmt.Errorf(err.Translate(trans))
+		}
+	}
+	return err
+}
+`, structName))
 			//}
 		}
 	}
@@ -831,12 +932,12 @@ func ProcessTypesFile(filePath string, options Options) error {
 		// 格式化代码
 		formatted, err := format.Source([]byte(modifiedContent))
 		if err != nil {
-			return fmt.Errorf("格式化代码失败: %w", err)
+			return false, fmt.Errorf("格式化代码失败: %w", err)
 		}
 
 		// 写回文件
 		if err := os.WriteFile(filePath, formatted, 0644); err != nil {
-			return fmt.Errorf("写入文件失败: %w", err)
+			return false, fmt.Errorf("写入文件失败: %w", err)
 		}
 
 		if options.DebugMode {
@@ -849,12 +950,12 @@ func ProcessTypesFile(filePath string, options Options) error {
 		// 格式化验证文件内容
 		formatted, err := format.Source([]byte(validationFileContent.String()))
 		if err != nil {
-			return fmt.Errorf("格式化验证文件代码失败: %w", err)
+			return false, fmt.Errorf("格式化验证文件代码失败: %w", err)
 		}
 
 		// 写入验证文件
 		if err := os.WriteFile(validationFilePath, formatted, 0644); err != nil {
-			return fmt.Errorf("写入验证文件失败: %w", err)
+			return false, fmt.Errorf("写入验证文件失败: %w", err)
 		}
 
 		if options.DebugMode {
@@ -862,7 +963,7 @@ func ProcessTypesFile(filePath string, options Options) error {
 		}
 	}
 
-	return nil
+	return genDefineValidate, nil
 }
 
 // 从结构体标签中提取validate标签内容
