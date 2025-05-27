@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/linabellbiu/goctl-validate/internal/processor"
+	"github.com/xs-cw/goctl-validate/internal/processor"
 
 	"github.com/zeromicro/go-zero/tools/goctl/plugin"
 )

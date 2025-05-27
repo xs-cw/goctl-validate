@@ -1,4 +1,4 @@
-module github.com/linabellbiu/goctl-validate
+module github.com/xs-cw/goctl-validate
 
 go 1.23.7
 

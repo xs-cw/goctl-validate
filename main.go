@@ -2,8 +2,8 @@ package main
 
 import (
 	"fmt"
-	"github.com/linabellbiu/goctl-validate/internal/processor"
-	"github.com/linabellbiu/goctl-validate/internal/validator"
+	"github.com/xs-cw/goctl-validate/internal/processor"
+	"github.com/xs-cw/goctl-validate/internal/validator"
 	"os"
 
 	"github.com/spf13/cobra"

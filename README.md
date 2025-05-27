@@ -29,7 +29,7 @@ func Parse(r *http.Request, v any) error {
 ## 安装
 
 ```bash
-go install github.com/linabellbiu/goctl-validate@latest
+go install github.com/xs-cw/goctl-validate@latest
 ```
 
 ## 使用方法
